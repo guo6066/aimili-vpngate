@@ -3658,13 +3658,70 @@ INDEX_HTML = r"""<!doctype html>
       <option value="residential">住宅IP</option>
       <option value="hosting">机房IP</option>
     </select>
-    <button id="btn_favorites" class="toolbar-btn" type="button" onclick="toggleFavoritesView()" style="margin-left: auto; height: 42px; gap: 6px;">
+    <button id="btn_exit_slots" class="toolbar-btn" type="button" onclick="toggleExitSlotsPanel()" style="margin-left: auto; height: 42px; gap: 6px;">
+      <svg xmlns="http://www.w3.org/2000/svg" style="width:16px; height:16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+      多出口住宅IP
+    </button>
+    <button id="btn_favorites" class="toolbar-btn" type="button" onclick="toggleFavoritesView()" style="height: 42px; gap: 6px;">
       <svg xmlns="http://www.w3.org/2000/svg" style="width:16px; height:16px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.907c.961 0 1.371 1.24.588 1.81l-3.97 2.883a1 1 0 00-.364 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.971-2.883a1 1 0 00-1.175 0l-3.97 2.883c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.364-1.118l-3.97-2.883c-.783-.57-.372-1.81.588-1.81h4.906a1 1 0 00.951-.69l1.519-4.674z" />
       </svg>
       收藏菜单
     </button>
   </section>
+
+  <!-- 多出口住宅 IP 内联面板（集成在主界面，由工具栏「多出口住宅IP」按钮或管理员菜单切换显示） -->
+  <div id="exit_slots_panel" style="display: none; background: rgba(22, 30, 49, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; margin-bottom: 20px; animation: modalFadeIn 0.25s ease-out;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" style="width:18px; height:18px; color: var(--primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        多出口住宅 IP
+      </h3>
+      <button type="button" onclick="toggleExitSlotsPanel()" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--text-secondary); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 50%;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+        <svg xmlns="http://www.w3.org/2000/svg" style="width:18px; height:18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <div id="exit_slots_error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); border-radius: 6px; display: none;"></div>
+    <div id="exit_slots_success" style="color: var(--success); font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); border-radius: 6px; display: none;"></div>
+
+    <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 16px;">
+      每个出口槽位 = 一条独立 VPN 隧道 + 一个独立本地代理端口，连接不同住宅节点，互不影响。也可在下方节点列表用「多出口▾」把指定 IP 指派到槽位。再把端口配置进 3x-ui 的多 outbound 即可实现「每入站一个住宅 IP」。
+    </div>
+
+    <form id="exit_slots_form" onsubmit="saveExitSlots(event)">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+        <div class="form-group">
+          <label class="form-label" for="slot_count">出口数量 (0 = 关闭)</label>
+          <input type="number" id="slot_count" class="input-field" min="0" max="16" value="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="slot_country">国家过滤 (留空=不限)</label>
+          <input type="text" id="slot_country" class="input-field" placeholder="如 JP 或 JP,KR">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+        <input type="checkbox" id="slot_residential" checked style="width: 16px; height: 16px; cursor: pointer;">
+        <label for="slot_residential" style="font-size: 13px; color: var(--text-secondary); cursor: pointer; margin: 0;">仅使用住宅/移动 IP（推荐；关闭则允许机房 IP 补位）</label>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 8px;">
+        <button type="button" onclick="exportThreeXui()" style="height: 40px; padding: 0 16px; font-weight: 600; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-primary); cursor: pointer;">导出 3x-ui 配置</button>
+        <button type="submit" id="exit_slots_submit_btn" class="btn-primary" style="height: 40px; padding: 0 20px; font-weight: 600; border-radius: 8px;">应用</button>
+      </div>
+    </form>
+
+    <div id="exit_slots_list" style="margin-top: 8px; max-height: 360px; overflow-y: auto;">
+      <div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 16px;">正在加载槽位状态...</div>
+    </div>
+
+    <div id="exit_slots_3xui_wrap" style="display:none; margin-top: 14px;">
+      <label class="form-label">3x-ui / Xray 出站配置（合并到你的 Xray 配置，routing 里 inboundTag 改成实际入站标签）</label>
+      <textarea id="exit_slots_3xui" readonly style="width:100%; height: 160px; font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
+      <div style="text-align:right; margin-top:6px;">
+        <button type="button" onclick="copyThreeXui()" style="height: 32px; padding: 0 14px; font-size: 12px; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color); background: transparent; color: var(--text-primary); cursor: pointer;">复制</button>
+      </div>
+    </div>
+  </div>
   <div id="favorites_panel" style="display: none; background: rgba(22, 30, 49, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; margin-bottom: 20px; animation: modalFadeIn 0.25s ease-out;">
     <div style="display: flex; flex-direction: column; gap: 16px;">
       <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
@@ -3857,62 +3914,6 @@ INDEX_HTML = r"""<!doctype html>
       </form>
     </div>
   </div>
-
-  <!-- Exit Slots Modal (多出口住宅IP，每槽位一个独立出口供 3x-ui 使用) -->
-  <div id="exit_slots_modal" class="modal">
-    <div class="modal-content" style="max-width: 720px; width: 95%;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-          <svg xmlns="http://www.w3.org/2000/svg" style="width:20px; height:20px; color: var(--primary);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          多出口住宅 IP
-        </h3>
-        <button type="button" onclick="closeExitSlotsModal()" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: var(--text-secondary); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 50%;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-          <svg xmlns="http://www.w3.org/2000/svg" style="width:18px; height:18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-
-      <div id="exit_slots_error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); border-radius: 6px; display: none;"></div>
-      <div id="exit_slots_success" style="color: var(--success); font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); border-radius: 6px; display: none;"></div>
-
-      <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 16px;">
-        每个出口槽位 = 一条独立 VPN 隧道 + 一个独立本地代理端口，连接不同住宅节点，互不影响。设定数量后系统会自动从可用住宅节点池里挑选并保持，节点掉线自动补齐。再把下方端口配置进 3x-ui 的多 outbound 即可实现「每入站一个住宅 IP」。
-      </div>
-
-      <form id="exit_slots_form" onsubmit="saveExitSlots(event)">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-          <div class="form-group">
-            <label class="form-label" for="slot_count">出口数量 (0 = 关闭)</label>
-            <input type="number" id="slot_count" class="input-field" min="0" max="16" value="0">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="slot_country">国家过滤 (留空=不限)</label>
-            <input type="text" id="slot_country" class="input-field" placeholder="如 JP 或 JP,KR">
-          </div>
-        </div>
-        <div class="form-group" style="margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
-          <input type="checkbox" id="slot_residential" checked style="width: 16px; height: 16px; cursor: pointer;">
-          <label for="slot_residential" style="font-size: 13px; color: var(--text-secondary); cursor: pointer; margin: 0;">仅使用住宅/移动 IP（推荐；关闭则允许机房 IP 补位）</label>
-        </div>
-        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 8px;">
-          <button type="button" onclick="exportThreeXui()" style="height: 40px; padding: 0 16px; font-weight: 600; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-primary); cursor: pointer;">导出 3x-ui 配置</button>
-          <button type="submit" id="exit_slots_submit_btn" class="btn-primary" style="height: 40px; padding: 0 20px; font-weight: 600; border-radius: 8px;">应用</button>
-        </div>
-      </form>
-
-      <div id="exit_slots_list" style="margin-top: 8px; max-height: 280px; overflow-y: auto;">
-        <div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 16px;">正在加载槽位状态...</div>
-      </div>
-
-      <div id="exit_slots_3xui_wrap" style="display:none; margin-top: 14px;">
-        <label class="form-label">3x-ui / Xray 出站配置（合并到你的 Xray 配置，routing 里 inboundTag 改成实际入站标签）</label>
-        <textarea id="exit_slots_3xui" readonly style="width:100%; height: 160px; font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
-        <div style="text-align:right; margin-top:6px;">
-          <button type="button" onclick="copyThreeXui()" style="height: 32px; padding: 0 14px; font-size: 12px; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-color); background: transparent; color: var(--text-primary); cursor: pointer;">复制</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
 
   <!-- VPS 购买推荐 Modal -->
   <div id="vps_recommend_modal" class="modal">
@@ -5216,23 +5217,38 @@ function closeGatewayModal() {
 }
 
 let exitSlotsPollInterval = null;
-function openExitSlotsModal() {
-  $("admin_dropdown").style.display = "none";
-  $("exit_slots_modal").style.display = "flex";
+function openExitSlotsPanel() {
+  const panel = $("exit_slots_panel");
+  if (!panel) return;
+  panel.style.display = "block";
   $("exit_slots_error").style.display = "none";
   $("exit_slots_success").style.display = "none";
   $("exit_slots_3xui_wrap").style.display = "none";
   loadExitSlots(true);
   if (exitSlotsPollInterval) clearInterval(exitSlotsPollInterval);
   exitSlotsPollInterval = setInterval(function(){ loadExitSlots(false); }, 4000);
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function closeExitSlotsModal() {
-  $("exit_slots_modal").style.display = "none";
+function closeExitSlotsPanel() {
+  const panel = $("exit_slots_panel");
+  if (panel) panel.style.display = "none";
   if (exitSlotsPollInterval) {
     clearInterval(exitSlotsPollInterval);
     exitSlotsPollInterval = null;
   }
+}
+
+function toggleExitSlotsPanel() {
+  const panel = $("exit_slots_panel");
+  if (panel && panel.style.display === "block") { closeExitSlotsPanel(); }
+  else { openExitSlotsPanel(); }
+}
+
+// 兼容旧入口（管理员菜单）：打开内联面板
+function openExitSlotsModal() {
+  if ($("admin_dropdown")) $("admin_dropdown").style.display = "none";
+  openExitSlotsPanel();
 }
 
 async function loadExitSlots(fillForm) {

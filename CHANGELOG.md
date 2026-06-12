@@ -17,6 +17,7 @@
   - **手动换 IP**：每个槽位可一键重摇到同地区的另一住宅节点，应对不同运营商 IP 质量差异；API `POST /api/switch_exit_slot`。
   - **节点列表直接指派 + 锁定**：主节点列表「操作」列新增「多出口▾」，可把指定 IP/运营商节点「切换到槽位 #N」或「新增槽位用此 IP」；被指派节点会锁定(pin)且行内显示 `出口#N` 角标；供给器优先使用锁定节点，失效时临时回退保连通。API `POST /api/assign_slot_node`、`POST /api/add_slot_with_node`。
   - **完整生命周期管理**：每个槽位支持停止/启动/删除，面板可新增空槽位；槽位模型由「数量」改为显式「启用索引列表 + 暂停集合」（`exit_slot_active` / `exit_slot_paused`），删除中间槽位不重排其余端口/索引，已配置的 3x-ui outbound 不错位。API `POST /api/stop_slot`、`/api/start_slot`、`/api/delete_slot`、`/api/add_slot`。
+  - **集成到主界面**：多出口面板由独立弹窗改为主界面内联面板，工具栏新增「多出口住宅IP」按钮一键展开（管理员菜单入口保留）。
   - **一键导出 3x-ui / Xray 出站配置**（`outbounds` + `routing.rules` 模板）。
   - 新增 API：`GET /api/exit_slots`、`POST /api/update_exit_slots`、`GET /api/exit_slots/3xui`。
   - 槽位状态持久化到 `slots.json`。
