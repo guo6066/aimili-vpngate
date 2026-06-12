@@ -1884,30 +1884,123 @@ def slot_port(i: int) -> int:
 def slot_config_path(i: int) -> Path:
     return CONFIG_DIR / f".slot_{i}.ovpn"
 
+def _normalize_index_list(raw: Any) -> list[int]:
+    out: set[int] = set()
+    if isinstance(raw, (list, tuple)):
+        for v in raw:
+            try:
+                iv = int(v)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= iv < MAX_EXIT_SLOTS:
+                out.add(iv)
+    return sorted(out)
+
+def get_active_slots() -> list[int]:
+    """启用的槽位索引列表（单一事实来源）。缺省时由旧版 count 推导为连续区间。"""
+    cfg = load_ui_config()
+    if "exit_slot_active" in cfg:
+        return _normalize_index_list(cfg.get("exit_slot_active"))
+    count = bounded_int(cfg.get("exit_slot_count"), DEFAULT_EXIT_SLOTS, 0, MAX_EXIT_SLOTS)
+    return list(range(count))
+
+def get_paused_slots() -> set[int]:
+    cfg = load_ui_config()
+    return set(_normalize_index_list(cfg.get("exit_slot_paused")))
+
+def _save_slot_lists(cfg: dict[str, Any], active: list[int] | None = None, paused: set[int] | None = None) -> None:
+    if active is not None:
+        cfg["exit_slot_active"] = active
+        cfg["exit_slot_count"] = len(active)  # 兼容旧字段/显示
+    if paused is not None:
+        cfg["exit_slot_paused"] = sorted(paused)
+    auth_file = DATA_DIR / "ui_auth.json"
+    DATA_DIR.mkdir(exist_ok=True, parents=True)
+    auth_file.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
 def get_exit_slot_config() -> dict[str, Any]:
     cfg = load_ui_config()
+    active = get_active_slots()
     return {
-        "count": bounded_int(cfg.get("exit_slot_count"), DEFAULT_EXIT_SLOTS, 0, MAX_EXIT_SLOTS),
+        "count": len(active),
+        "active": active,
+        "paused": sorted(get_paused_slots() & set(active)),
         "country": str(cfg.get("exit_slot_country", "") or "").strip().upper(),
         "residential_only": bool(cfg.get("exit_slot_residential_only", True)),
     }
 
 def set_exit_slot_config(count: Any = None, country: Any = None, residential_only: Any = None) -> dict[str, Any]:
     with lock:
-        auth_file = DATA_DIR / "ui_auth.json"
         cfg = load_ui_config()
+        active = paused = None
         if count is not None:
-            cfg["exit_slot_count"] = bounded_int(count, DEFAULT_EXIT_SLOTS, 0, MAX_EXIT_SLOTS)
+            n = bounded_int(count, DEFAULT_EXIT_SLOTS, 0, MAX_EXIT_SLOTS)
+            active = list(range(n))  # 数量滑块=连续区间，覆盖式设定
+            paused = get_paused_slots() & set(active)
         if country is not None:
             cfg["exit_slot_country"] = str(country or "").strip().upper()
         if residential_only is not None:
             cfg["exit_slot_residential_only"] = bool(residential_only)
         try:
-            DATA_DIR.mkdir(exist_ok=True, parents=True)
-            auth_file.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            _save_slot_lists(cfg, active, paused)
         except Exception as e:
             print(f"[多出口] 保存槽位配置失败: {e}", flush=True)
     return get_exit_slot_config()
+
+def add_one_slot() -> dict[str, Any]:
+    """新增一个空槽位：取最小可用索引加入启用列表。"""
+    with lock:
+        active = get_active_slots()
+        if len(active) >= MAX_EXIT_SLOTS:
+            return {"ok": False, "error": f"已达到最大出口数量 {MAX_EXIT_SLOTS}"}
+        free = next((i for i in range(MAX_EXIT_SLOTS) if i not in active), None)
+        if free is None:
+            return {"ok": False, "error": f"已达到最大出口数量 {MAX_EXIT_SLOTS}"}
+        active = sorted(active + [free])
+        cfg = load_ui_config()
+        _save_slot_lists(cfg, active=active)
+    threading.Thread(target=supervise_exit_slots_once, daemon=True).start()
+    return {"ok": True, "slot": free, "port": slot_port(free), "message": f"已新增槽位 #{free}（端口 {slot_port(free)}）"}
+
+def delete_slot(i: int) -> dict[str, Any]:
+    """删除某槽位：拆除隧道/代理并从启用列表移除，同时清理该槽的锁定/地区/暂停记录。"""
+    with lock:
+        active = get_active_slots()
+        if i not in active:
+            return {"ok": False, "error": f"槽位 #{i} 不存在"}
+        active = [x for x in active if x != i]
+        cfg = load_ui_config()
+        paused = get_paused_slots(); paused.discard(i)
+        cmap = cfg.get("exit_slot_country_map");  cmap.pop(str(i), None) if isinstance(cmap, dict) else None
+        pmap = cfg.get("exit_slot_pin_map");      pmap.pop(str(i), None) if isinstance(pmap, dict) else None
+        _save_slot_lists(cfg, active=active, paused=paused)
+    tear_down_slot(i, stop_proxy=True)
+    write_slots_state()
+    return {"ok": True, "slot": i, "message": f"已删除槽位 #{i}"}
+
+def stop_slot(i: int) -> dict[str, Any]:
+    with lock:
+        active = get_active_slots()
+        if i not in active:
+            return {"ok": False, "error": f"槽位 #{i} 不存在"}
+        cfg = load_ui_config()
+        paused = get_paused_slots(); paused.add(i)
+        _save_slot_lists(cfg, paused=paused)
+    tear_down_slot(i, stop_proxy=True)
+    mark_slot_paused(i)
+    write_slots_state()
+    return {"ok": True, "slot": i, "message": f"已停止槽位 #{i}"}
+
+def start_slot(i: int) -> dict[str, Any]:
+    with lock:
+        active = get_active_slots()
+        if i not in active:
+            return {"ok": False, "error": f"槽位 #{i} 不存在"}
+        cfg = load_ui_config()
+        paused = get_paused_slots(); paused.discard(i)
+        _save_slot_lists(cfg, paused=paused)
+    threading.Thread(target=supervise_exit_slots_once, daemon=True).start()
+    return {"ok": True, "slot": i, "message": f"已启动槽位 #{i}"}
 
 def get_slot_country_map() -> dict[str, str]:
     cfg = load_ui_config()
@@ -2063,6 +2156,15 @@ def mark_slot_pending(i: int, reason: str) -> None:
             "process": None, "status": "pending", "since": time.time(), "message": reason,
         }
 
+def mark_slot_paused(i: int) -> None:
+    with exit_slots_lock:
+        exit_slots[i] = {
+            "slot": i, "device": slot_device(i), "table": slot_table(i), "port": slot_port(i),
+            "node_id": "", "country": "", "country_short": "", "ip": "", "ip_type": "",
+            "location": "", "owner": "", "latency_ms": 0,
+            "process": None, "status": "paused", "since": time.time(), "message": "已手动停止",
+        }
+
 def tear_down_slot(i: int, stop_proxy: bool = True) -> None:
     with exit_slots_lock:
         slot = exit_slots.pop(i, None)
@@ -2137,18 +2239,26 @@ def supervise_exit_slots_once() -> None:
     if not exit_slots_supervise_lock.acquire(blocking=False):
         return
     try:
-        cfg = get_exit_slot_config()
-        desired = cfg["count"]
+        active = set(get_active_slots())
+        paused = get_paused_slots() & active
 
         with exit_slots_lock:
             known_indices = sorted(set(exit_slots.keys()) | set(exit_slot_proxy_stops.keys()))
-        # 拆除超出目标数量的槽位
+        # 拆除已删除（不在启用列表）的槽位
         for i in known_indices:
-            if i >= desired:
+            if i not in active:
                 tear_down_slot(i, stop_proxy=True)
 
-        # 体检并补齐 0..desired-1 槽位
-        for i in range(desired):
+        for i in sorted(active):
+            if i in paused:
+                # 已停止：确保隧道+代理已拆除，并保留占位以便 UI 显示与端口预留
+                with exit_slots_lock:
+                    has_runtime = (i in exit_slot_proxy_stops) or (
+                        i in exit_slots and exit_slots[i].get("process") is not None)
+                if has_runtime:
+                    tear_down_slot(i, stop_proxy=True)
+                mark_slot_paused(i)
+                continue
             if slot_process_alive(i):
                 continue
             tear_down_slot(i, stop_proxy=False)  # 清理死进程/路由，保留已分配的代理端口
@@ -2168,8 +2278,10 @@ def supervise_exit_slots_once() -> None:
 def switch_slot_node(i: int) -> dict[str, Any]:
     """手动为某槽位切换到另一个住宅节点（运营商/IP 质量不满意时重摇）。"""
     cfg = get_exit_slot_config()
-    if i < 0 or i >= cfg["count"]:
-        return {"ok": False, "error": "槽位超出当前出口数量范围"}
+    if i not in cfg["active"]:
+        return {"ok": False, "error": f"槽位 #{i} 不存在"}
+    if i in cfg["paused"]:
+        return {"ok": False, "error": f"槽位 #{i} 已停止，请先启动再换 IP"}
     if not exit_slots_supervise_lock.acquire(blocking=False):
         return {"ok": False, "error": "供给器正忙，请稍后重试"}
     try:
@@ -2193,8 +2305,8 @@ def switch_slot_node(i: int) -> dict[str, Any]:
 def assign_node_to_slot(i: int, node_id: str) -> dict[str, Any]:
     """把指定节点(IP)分配到某个已存在的槽位并锁定，立即拨号。"""
     cfg = get_exit_slot_config()
-    if i < 0 or i >= cfg["count"]:
-        return {"ok": False, "error": "槽位超出当前出口数量范围"}
+    if i not in cfg["active"]:
+        return {"ok": False, "error": f"槽位 #{i} 不存在"}
     node_id = str(node_id or "").strip()
     node = next((n for n in read_nodes() if n.get("id") == node_id), None)
     if not node:
@@ -2208,6 +2320,11 @@ def assign_node_to_slot(i: int, node_id: str) -> dict[str, Any]:
     if not exit_slots_supervise_lock.acquire(blocking=False):
         return {"ok": False, "error": "供给器正忙，请稍后重试"}
     try:
+        # 指派即视为启用该槽位（若之前被停止则恢复）
+        with lock:
+            _cfg = load_ui_config()
+            _paused = get_paused_slots(); _paused.discard(i)
+            _save_slot_lists(_cfg, paused=_paused)
         set_slot_pin(i, node_id)
         tear_down_slot(i, stop_proxy=False)
         if bring_up_slot(i, node):
@@ -2221,10 +2338,6 @@ def assign_node_to_slot(i: int, node_id: str) -> dict[str, Any]:
 
 def add_slot_with_node(node_id: str) -> dict[str, Any]:
     """新增一个槽位并锁定到指定节点(IP)。"""
-    cfg = get_exit_slot_config()
-    new_idx = cfg["count"]
-    if new_idx >= MAX_EXIT_SLOTS:
-        return {"ok": False, "error": f"已达到最大出口数量 {MAX_EXIT_SLOTS}"}
     node_id = str(node_id or "").strip()
     node = next((n for n in read_nodes() if n.get("id") == node_id), None)
     if not node:
@@ -2235,8 +2348,17 @@ def add_slot_with_node(node_id: str) -> dict[str, Any]:
         for idx, s in exit_slots.items():
             if s.get("node_id") == node_id:
                 return {"ok": False, "error": f"该节点已被槽位 #{idx} 使用"}
+    with lock:
+        active = get_active_slots()
+        if len(active) >= MAX_EXIT_SLOTS:
+            return {"ok": False, "error": f"已达到最大出口数量 {MAX_EXIT_SLOTS}"}
+        new_idx = next((i for i in range(MAX_EXIT_SLOTS) if i not in active), None)
+        if new_idx is None:
+            return {"ok": False, "error": f"已达到最大出口数量 {MAX_EXIT_SLOTS}"}
+        active = sorted(active + [new_idx])
+        cfg = load_ui_config()
+        _save_slot_lists(cfg, active=active)
     set_slot_pin(new_idx, node_id)
-    set_exit_slot_config(count=new_idx + 1)
     result = assign_node_to_slot(new_idx, node_id)
     if result.get("ok"):
         result["message"] = f"已新增槽位 #{new_idx}（端口 {slot_port(new_idx)}）并锁定该节点"
@@ -5148,23 +5270,32 @@ function renderExitSlots(data) {
   const ph = globalCountry ? ('跟随全局 ' + globalCountry) : '不限地区';
   let html = '';
   slots.forEach(function(s) {
+    const paused = s.status === 'paused';
     const up = s.status === 'up';
-    const dot = up ? 'var(--success)' : (s.status === 'pending' ? 'var(--warning)' : 'var(--danger)');
-    const statusText = up ? '运行中' : (s.status === 'pending' ? '等待节点' : '已断开');
+    const dot = up ? 'var(--success)' : (paused ? 'var(--text-secondary)' : (s.status === 'pending' ? 'var(--warning)' : 'var(--danger)'));
+    const statusText = up ? '运行中' : (paused ? '已停止' : (s.status === 'pending' ? '等待节点' : '已断开'));
     const loc = s.location || s.country || '—';
     const ip = s.ip || '—';
     const ipType = s.ip_type === 'residential' ? '住宅' : (s.ip_type === 'mobile' ? '移动' : (s.ip_type === 'hosting' ? '机房' : (s.ip_type || '—')));
     const msg = (!up && s.message) ? ('<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">' + s.message + '</div>') : '';
     const cf = (s.country_filter !== undefined ? s.country_filter : (countryMap[String(s.slot)] || ''));
-    html += '<div style="padding:10px 12px;border:1px solid var(--border-color);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);">'
-      + '<div style="display:flex;align-items:center;gap:12px;">'
+    const bs = 'flex-shrink:0;height:28px;padding:0 10px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--border-color);background:transparent;cursor:pointer;';
+    // 运行/停止切换按钮
+    const startStopBtn = paused
+      ? '<button type="button" onclick="slotAction(\'start_slot\',' + s.slot + ',this)" style="' + bs + 'color:var(--success);">启动</button>'
+      : '<button type="button" onclick="slotAction(\'stop_slot\',' + s.slot + ',this)" style="' + bs + 'color:var(--warning);">停止</button>';
+    const switchBtn = paused ? ''
+      : '<button type="button" onclick="switchExitSlot(' + s.slot + ',this)" title="换一个住宅 IP" style="' + bs + 'color:var(--text-primary);">换 IP</button>';
+    const delBtn = '<button type="button" onclick="slotAction(\'delete_slot\',' + s.slot + ',this)" title="删除该槽位" style="' + bs + 'color:var(--danger);">删除</button>';
+    html += '<div style="padding:10px 12px;border:1px solid var(--border-color);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);' + (paused ? 'opacity:0.7;' : '') + '">'
+      + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
         + '<span style="width:9px;height:9px;border-radius:50%;background:' + dot + ';flex-shrink:0;box-shadow:0 0 8px ' + dot + ';"></span>'
-        + '<div style="flex:1;min-width:0;">'
+        + '<div style="flex:1;min-width:140px;">'
           + '<div style="font-size:13px;color:var(--text-primary);font-weight:600;">槽位 #' + s.slot + ' · 代理端口 <span style="color:var(--primary);">' + s.port + '</span> <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + statusText + ')</span></div>'
           + '<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + loc + ' · ' + ip + ' · ' + ipType + '</div>'
           + msg
         + '</div>'
-        + '<button type="button" onclick="switchExitSlot(' + s.slot + ',this)" title="换一个住宅 IP" style="flex-shrink:0;height:30px;padding:0 12px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--text-primary);cursor:pointer;">换 IP</button>'
+        + switchBtn + startStopBtn + delBtn
       + '</div>'
       + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">'
         + '<span style="font-size:11px;color:var(--text-secondary);flex-shrink:0;">本槽地区</span>'
@@ -5173,7 +5304,33 @@ function renderExitSlots(data) {
       + '</div>'
     + '</div>';
   });
+  html += '<button type="button" onclick="addEmptySlot(this)" style="width:100%;height:34px;margin-top:4px;font-size:13px;font-weight:600;border-radius:8px;border:1px dashed var(--border-color);background:transparent;color:var(--text-secondary);cursor:pointer;">+ 新增空槽位</button>';
   wrap.innerHTML = html;
+}
+
+async function slotAction(api, slot, btn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '...';
+  $("exit_slots_error").style.display = "none"; $("exit_slots_success").style.display = "none";
+  if (api === 'delete_slot' && !confirm('确定删除槽位 #' + slot + '？其代理端口将停止监听。')) { btn.disabled = false; btn.textContent = old; return; }
+  try {
+    const res = await fetch("./api/" + api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slot: slot }) });
+    const data = await res.json();
+    if (data.ok) { $("exit_slots_success").textContent = data.message || '操作成功'; $("exit_slots_success").style.display = "block"; }
+    else { $("exit_slots_error").textContent = data.error || '操作失败'; $("exit_slots_error").style.display = "block"; }
+  } catch (e) { $("exit_slots_error").textContent = "请求失败: " + e; $("exit_slots_error").style.display = "block"; }
+  finally { btn.disabled = false; btn.textContent = old; loadExitSlots(false); }
+}
+
+async function addEmptySlot(btn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '新增中...';
+  $("exit_slots_error").style.display = "none"; $("exit_slots_success").style.display = "none";
+  try {
+    const res = await fetch("./api/add_slot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const data = await res.json();
+    if (data.ok) { $("exit_slots_success").textContent = data.message || '已新增槽位'; $("exit_slots_success").style.display = "block"; }
+    else { $("exit_slots_error").textContent = data.error || '新增失败'; $("exit_slots_error").style.display = "block"; }
+  } catch (e) { $("exit_slots_error").textContent = "请求失败: " + e; $("exit_slots_error").style.display = "block"; }
+  finally { btn.disabled = false; btn.textContent = old; loadExitSlots(false); }
 }
 
 async function switchExitSlot(slot, btn) {
@@ -6238,6 +6395,33 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"ok": False, "error": "缺少节点 ID"}, HTTPStatus.BAD_REQUEST)
                     return
                 result = add_slot_with_node(node_id)
+                self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        elif effective_path in ("/api/stop_slot", "/api/start_slot", "/api/delete_slot"):
+            try:
+                payload = self.read_json_body()
+                slot = payload.get("slot")
+                if slot is None or not str(slot).strip().lstrip("-").isdigit():
+                    self.send_json({"ok": False, "error": "缺少有效的槽位号"}, HTTPStatus.BAD_REQUEST)
+                    return
+                slot = int(slot)
+                if effective_path == "/api/stop_slot":
+                    result = stop_slot(slot)
+                elif effective_path == "/api/start_slot":
+                    result = start_slot(slot)
+                else:
+                    result = delete_slot(slot)
+                self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT)
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        elif effective_path == "/api/add_slot":
+            try:
+                result = add_one_slot()
                 self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT)
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
