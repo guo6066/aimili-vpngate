@@ -30,9 +30,6 @@
 - 进程重启遗留孤儿隧道：启动时 `kill_slot_openvpn_processes` 回收带 `AIMILI_SLOT` 标记的旧槽位 OpenVPN 进程并清理残留路由表，避免新供给器无法在 `tunN` 上重新拨号。
 - 主连接清理不再误杀多出口隧道：`kill_existing_openvpn_processes` 跳过带 `AIMILI_SLOT` 标记的进程；槽位拨号 `report_status=False`，不污染主连接的 UI 状态显示。
 
-### 移除 (Removed)
-- 移除上游原作者的交流方式（Telegram / 论坛 / 邮箱）与捐赠钱包地址（Web UI 与 README 中英文均已清理）。保留指向上游原项目的 Fork 致谢链接。
-
 ### 文档 (Docs)
 - README 重写为本二开项目的独立文档（中英双语），突出多出口与 3x-ui 集成，含核心特性表、环境变量表、架构示意图与 3x-ui 配置示例。
 - 安装脚本 `install.sh` 默认仓库地址切换为本二开仓库 `Guli-Joy/aimili-vpngate`（保留命令行参数覆盖能力）。
