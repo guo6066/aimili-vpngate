@@ -1,209 +1,194 @@
-# AimiliVPN 🌐
+# AimiliVPN · 多出口增强版 (Multi-Exit Edition) 🌐
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Zero-Dependency](https://img.shields.io/badge/依赖-零第三方库-success?style=flat-square)](#)
+[![Platform](https://img.shields.io/badge/平台-Linux%20VPS-1f6feb?style=flat-square&logo=linux&logoColor=white)](#)
+[![License](https://img.shields.io/badge/License-见%20LICENSE-lightgrey?style=flat-square)](./LICENSE)
 
 Bilingual: [中文](#中文) | [English](#english)
 
 ---
 
 <a name="中文"></a>
-## 中文 (Chinese)
+## 中文
 
-AimiliVPN 是一款基于官方 VPNGate 开放协议的高性能、零依赖 VPN 代理网关。它以纯 Python 标准库编写，内置美观响应式的管理网页，提供智能并发测速、多路由模式、出站代理网关、实时日志等强大功能。
+**AimiliVPN 多出口增强版** 是一个基于官方 VPNGate 开放协议的、**零第三方依赖（纯 Python 标准库）** 的高性能 VPN 代理网关。在上游能力（智能并发测速、多路由模式、暗黑玻璃拟物管理网页、实时日志、故障自愈）之上，本二开版本新增并强化了以下能力：
 
-> 🔱 **二次开发声明**：本仓库是基于上游原项目 [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate) 的二次开发（Fork）版本。在保留原有全部能力的基础上，新增了 **多出口住宅 IP（Multi-Exit）** 等特性，详见下文。原项目版权归原作者所有，向上游致谢。
+- 🌟 **多出口住宅 IP（Multi-Exit）**：单台服务器上同时维持 **N 条相互隔离的隧道**，每条连接不同住宅节点、绑定独立本地代理端口，**专为配合 3x-ui / Xray 实现「每个入站走一个独立住宅 IP」**，并可一键导出 Xray 出站配置。
+- ⚡ **分层并发测速**：先用高并发 TCP 连通性粗筛淘汰死节点，再对存活节点做完整 OpenVPN 精验，大批量检测更快、更省资源。
+- 🧠 **代理链路优化**：隧道内 DNS 解析加入缓存与多上游 DNS 竞速；本地代理转发改为非阻塞双向泵，修复了原半双工阻塞风险并支持半关闭传播。
+- 🛡️ **多出口可靠性**：供给器非阻塞互斥避免并发重入，进程重启时自动回收遗留隧道孤儿进程。
+
+> 🔱 **二次开发声明**：本仓库基于上游原项目 [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate) 二次开发（Fork），保留其全部原有能力。原项目版权归原作者所有，在此向上游致谢。本仓库仅维护本二开版本的新增特性与适配。
 
 ---
 
-### 🚀 一键极速部署 (支持 Debian/Ubuntu/CentOS/Alpine 等 Linux 系统)
+### 🚀 一键部署（Debian / Ubuntu / CentOS / RHEL / Rocky / Alma / Fedora / Alpine 等）
 
-在您的 Linux VPS 上以 root 用户执行以下对应命令：
+在你的 Linux VPS 上以 root 执行：
 
-#### 🌟 正式稳定版本 (main 分支)
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/Guli-Joy/aimili-vpngate/main/install.sh)
 ```
-> 💡 **小贴士**：部署完成后，终端会输出管理网页的专属链接（含随机安全后缀，如 `http://your_vps_ip:8787/u71e9IXp4TPx`）。在终端中输入 `ml` 命令可以随时调出交互式命令行管理菜单。
+
+> 💡 安装脚本会自动识别包管理器（apt/apk/dnf/yum）安装依赖（openvpn、python3、iproute2、iptables 等）、注册系统服务（systemd 或 OpenRC）、生成随机管理员账号密码与带安全后缀的后台地址，并安装交互式命令行菜单 `ml`。部署完成后终端会打印专属后台链接，如 `http://你的IP:8787/u71e9IXp4TPx`。
+
+如需指定自定义仓库（例如你自己的二开分叉）：`bash install.sh <github_user> <repo_name>`。
 
 ---
 
-### 💡 快速使用指南 (小白必看)
+### ⭐ 核心特性
 
-部署成功后，如何使用它进行科学上网？
+| 能力 | 说明 |
+| --- | --- |
+| 零依赖 | 纯 Python 标准库实现，无需 pip 安装任何三方包 |
+| 节点来源 | 实时拉取官方 VPNGate iPhone API，自动解码 OpenVPN 配置 |
+| 智能测速 | **分层测速**：TCP 粗筛 + OpenVPN 精验，并发可配置 |
+| 路由模式 | 智能自动漂移 / 固定 IP / 固定国家地区 / 收藏夹优先 |
+| 出站类型过滤 | 可只选住宅/移动 IP，或机房 IP |
+| 本地代理网关 | 自适应 HTTP + SOCKS5（默认端口 `7928`，默认仅绑 `127.0.0.1`） |
+| **多出口住宅 IP** | **N 条隔离隧道 + N 个独立代理端口 + 自动漂移 + 3x-ui 一键导出** |
+| 诊断引擎 | API/OpenVPN/本地路由防火墙分级错误码与中文原因定位 |
+| 管理后台 | 暗黑玻璃拟物风网页 + 随机安全后缀 + 会话鉴权 |
+| 命令行 | `ml` 交互式菜单（状态自检、服务管理、更新等） |
 
-#### 第一步：登录 Web 管理后台
-打开浏览器，访问部署完成时提示的专属后台地址（含安全后缀），即可进入精美的暗黑玻璃拟物风管理界面。
+---
+
+### 💡 快速使用
+
+#### 第一步：登录后台
+浏览器打开部署时输出的专属地址（含安全后缀）即可进入管理界面。
 
 #### 第二步：获取并连接节点
-1. 首次进入后台，节点列表可能正在进行首次自动测速与拉取。
-2. 点击 **“更新节点”** 按钮（或通过网页下方的网关/日志进行状态检查），程序会在后台通过多线程并发测速，自动筛选出延迟最低、可连接的 VPNGate 节点。
-3. 选择您喜欢的出站路由模式：
-   - **智能自动配置**（推荐）：如果当前连接的节点失效，系统会在数秒内自动漂移连接至其他备用健康节点，无需手动干预。
-   - **固定国家地区**：只选择指定国家（如日本 JP、韩国 KR、美国 US）的最佳节点。
-   - **固定 IP 节点**：始终锁定连接到这一个特定节点。
+首次进入会自动测速拉取。点击 **更新节点** 触发并发测速，再选择出站路由模式：
+- **智能自动配置**（推荐）：节点失效时数秒内自动漂移到其他健康节点。
+- **固定国家地区**：只选指定国家（如 JP、KR、US）最佳节点。
+- **固定 IP 节点**：锁定单一节点。
 
-#### 第三步：使用本机代理 (核心步骤)
-为了防止代理端口暴露至公网被恶意扫描和滥用，AimiliVPN 的双效代理服务（默认端口 **`7928`**，自适应支持 SOCKS5 和 HTTP 协议）**默认仅绑定在本地回环地址（`127.0.0.1`）**，只接收 VPS 本机上的流量，不对外机提供代理。
+#### 第三步：使用本机代理（核心）
+为防止端口被公网滥用扫描，双效代理（默认 **`7928`**，自适应 SOCKS5 / HTTP）**默认仅绑定 `127.0.0.1`**，只接收 VPS 本机流量。
 
-* **🐍 Python 脚本中使用代理**:
-  ```python
-  import requests
-  proxies = {
-      "http": "http://127.0.0.1:7928",
-      "https": "http://127.0.0.1:7928",
+```python
+import requests
+proxies = {"http": "http://127.0.0.1:7928", "https": "http://127.0.0.1:7928"}
+print(requests.get("https://api.ipify.org", proxies=proxies).text)
+```
+
+```bash
+export http_proxy="http://127.0.0.1:7928"
+export https_proxy="http://127.0.0.1:7928"
+```
+
+> 💡 确需对公网开放代理端口，可设环境变量 `export LOCAL_PROXY_HOST="::"` 后重启服务。
+
+---
+
+### 🌐 多出口住宅 IP（本版本核心特性）
+
+在一台服务器上同时建立 **N 条相互隔离的 VPN 隧道**，每条连接不同住宅节点、绑定独立本地代理端口，配合 3x-ui / Xray 实现「每个入站走一个独立住宅 IP」。
+
+**工作原理**：每个出口槽位 = 独立 `tunN` 隧道 + 独立策略路由表 + 独立本地 SOCKS5/HTTP 代理端口（默认从 `17928` 起递增）。各槽位互不影响；节点掉线会**自动漂移**补齐其他健康住宅节点。
+
+**使用步骤**：
+1. 进入后台 → **管理员 → 多出口住宅 IP**。
+2. 设置「出口数量」（如 `5`）、可选「国家过滤」（如 `JP,KR`）、勾选「仅住宅 IP」。
+3. 点击 **应用**，系统自动拉起 N 条隧道，代理端口为 `17928, 17929, ...`。
+4. 点击 **导出 3x-ui 配置**，把生成的 `outbounds` 合并进 Xray 配置，并将 `routing.rules` 里的 `inboundTag` 改成你实际的入站标签。
+
+**3x-ui / Xray 出站示例**（即导出内容的结构）：
+
+```json
+{
+  "outbounds": [
+    { "tag": "res-0-jp", "protocol": "socks", "settings": { "servers": [{ "address": "127.0.0.1", "port": 17928 }] } },
+    { "tag": "res-1-jp", "protocol": "socks", "settings": { "servers": [{ "address": "127.0.0.1", "port": 17929 }] } }
+  ],
+  "routing": {
+    "rules": [
+      { "type": "field", "inboundTag": ["inbound-0"], "outboundTag": "res-0-jp" },
+      { "type": "field", "inboundTag": ["inbound-1"], "outboundTag": "res-1-jp" }
+    ]
   }
-  response = requests.get("https://www.google.com", proxies=proxies)
-  ```
-* **🐚 Shell 终端环境中使用代理**:
-  在命令行执行以下命令，可以让当前终端的后续命令（如 `curl`、`wget` 等）走代理出口：
-  ```bash
-  export http_proxy="http://127.0.0.1:7928"
-  export https_proxy="http://127.0.0.1:7928"
-  ```
-* **⚙️ 本地其他服务配置**:
-  将本机的其他代理工具、爬虫框架或服务的出战代理设置为 `127.0.0.1:7928`。
+}
+```
 
-> 💡 **小贴士**：如果您确实需要对公网其他设备开放此代理端口，可以通过设置环境变量 `export LOCAL_PROXY_HOST="::"` 重新启动服务以允许公网接入。
+> ⚠️ **关于住宅 IP 数量**：VPNGate 同时可用的健康住宅节点有限（以日韩居多），实际能填满的槽位数受当下节点池限制。若需要大规模、稳定且可锁定的住宅 IP，建议叠加付费住宅代理（用法与上面相同，只是把上游换成代理商地址 + 每个 outbound 用不同 username 触发粘性会话）。
 
 ---
 
-### 🛠️ 核心功能与操作说明
+### ⚙️ 可调环境变量（节选）
 
-* **合并操作面板**：将“更新节点”与“立即检测补齐”合并，一键触发多线程拉取与测速。
-* **网关状态面板**：
-  - **系统诊断**：检测网关心跳及后台各个子守护线程（网页服务、VPN连接管理、出站网关服务）是否正常运行。若有脚本未运行，会提示具体的异常原因。
-  - **本地代理出口检测**：在网页端直接一键检测 VPS 后台对海外的实际连通状况，并回显真实的代理出站 IP 和所在地理位置。
-* **日志追踪面板**：
-  - **分类过滤**：可精准筛选查看特定功能的日志（如 VPN 连接日志、API 请求日志、系统异常等）。
-  - **实时滚动与管理**：日志实时滚动加载，支持一键复制代码、一键导出 `.log` 日志文件到本地。
-
----
-
-### 🌐 多出口住宅 IP（Multi-Exit · 二开新增）
-
-本二开版本新增「多出口」能力：**一台服务器上同时建立 N 条相互隔离的 VPN 隧道**，每条连接不同的住宅节点、绑定独立的本地代理端口，专为配合 **3x-ui / Xray** 实现「每个入站走一个独立住宅 IP」而设计。
-
-* **工作原理**：每个出口槽位 = 独立 `tunN` 隧道 + 独立策略路由表 + 独立本地 SOCKS5/HTTP 代理端口（默认从 `17928` 起递增）。各槽位互不影响，节点掉线会**自动漂移**补齐健康住宅节点。
-* **使用方法**：
-  1. 进入 Web 后台 → **管理员 → 多出口住宅 IP**。
-  2. 设置「出口数量」（如 `5`）、可选「国家过滤」（如 `JP,KR`）、勾选「仅住宅 IP」。
-  3. 点击「应用」，系统自动拉起对应数量的隧道，端口为 `17928, 17929, ...`。
-  4. 点击「导出 3x-ui 配置」，把生成的 `outbounds` 合并进你的 Xray 配置，并将 `routing.rules` 里的 `inboundTag` 改为你实际的入站标签即可。
-* **可调环境变量**：`MAX_EXIT_SLOTS`（上限，默认 16）、`SLOT_PORT_BASE`（端口基准，默认 17928）、`SLOT_DEV_BASE`（tun 设备基准号，默认 120）、`SLOT_TABLE_BASE`（路由表基准，默认 200）、`EXIT_SLOTS_CHECK_INTERVAL`（体检间隔秒，默认 30）。
-
-> ⚠️ **关于住宅 IP 数量**：VPNGate 同时可用的健康住宅节点数量有限（以日韩居多），实际能填满的槽位数受当下节点池限制。若需要大规模、稳定且可锁定的住宅 IP，建议叠加付费住宅代理。
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `LOCAL_PROXY_HOST` | `127.0.0.1` | 本地代理绑定地址（设 `::` 可对公网开放） |
+| `LOCAL_PROXY_PORT` | `7928` | 主代理端口 |
+| `UI_PORT` | `8787` | 管理后台端口 |
+| `OPENVPN_TEST_CONCURRENCY` | `8` | OpenVPN 精验并发数 |
+| `TCP_PRESCREEN_CONCURRENCY` | `100` | TCP 粗筛并发数 |
+| `MAX_EXIT_SLOTS` | `16` | 多出口槽位上限 |
+| `MULTI_EXIT_SLOTS` | `0` | 启动默认槽位数（0=关闭，亦可在后台调整） |
+| `SLOT_PORT_BASE` | `17928` | 多出口代理端口基准 |
+| `SLOT_DEV_BASE` | `120` | 多出口 tun 设备基准号 |
+| `SLOT_TABLE_BASE` | `200` | 多出口策略路由表基准 |
+| `EXIT_SLOTS_CHECK_INTERVAL` | `30` | 多出口体检/补齐间隔（秒） |
+| `OPENVPN_TUN_DNS` | `8.8.8.8,1.1.1.1` | 隧道内 DNS（逗号分隔，竞速） |
 
 ---
 
-### ⚠️ 小白安装与运行常见问题 (FAQ)
+### ⚠️ 常见问题 (FAQ)
 
-#### 1. 提示 `Cannot allocate tun` 或 `Cannot open tun/tap dev`
-* **原因**：VPS 宿主机未启用虚拟网卡（TUN/TAP 设备）。这种情况常见于 LXC 或 OpenVZ 架构的轻量 VPS。
-* **解决办法**：请登录您的 VPS 服务商控制面板（如 SolusVM/Proxmox），找到 **Enable TUN/TAP** / **开启 TUN** 选项并启用，然后重启 VPS。如无此选项，请工单联系客服开启。
+**1. 提示 `Cannot allocate tun` / `Cannot open tun/tap dev`**
+VPS 未启用虚拟网卡（常见于 LXC/OpenVZ）。请在服务商控制面板开启 **TUN/TAP** 后重启，或工单联系客服。
 
-#### 2. 网页管理后台无法打开（链接超时或拒绝连接）
-* **原因 1**：VPS 本身自带防火墙（如 UFW、firewalld 或 iptables）阻断了管理端口（默认 `8787`）或代理端口（默认 `7928`）。
-* **解决办法 1**：请在终端放行对应端口：
-  * **UFW (Ubuntu/Debian)**: `ufw allow 8787/tcp && ufw allow 7928/tcp`
-  * **Firewalld (CentOS/RHEL)**: `firewall-cmd --zone=public --add-port=8787/tcp --permanent && firewall-cmd --zone=public --add-port=7928/tcp --permanent && firewall-cmd --reload`
-* **原因 2**：云服务商的“安全组”或“网络访问控制列表 (ACL)”未放行端口。
-* **解决办法 2**：**非常重要！** 登录云服务商控制台（如阿里云、腾讯云、AWS、Oracle Cloud等），找到您 VPS 实例的 **安全组规则 (Security Group)**，在入站规则中添加：
-  - **协议类型**: `TCP`
-  - **端口范围**: `8787` (管理网页) 和 `7928` (代理端口)
-  - **授权对象/源IP**: `0.0.0.0/0` (允许所有人，或指定您自己的家庭公网 IP 提高安全性)
+**2. 后台打不开（超时/拒绝连接）**
+- 本机防火墙拦截：`ufw allow 8787/tcp && ufw allow 7928/tcp`（firewalld 用 `firewall-cmd --add-port=...`）。
+- 云厂商安全组：在入站规则放行 TCP `8787`（后台）。注意多出口端口（`17928+`）默认仅本机使用，**无需**对公网放行。
 
-#### 3. 页面提示 `API Domain Blocked` 且备选节点显示为 0
-* **原因**：您的 VPS DNS 解析异常，或者官方 VPNGate 域名遭防火墙拦截污染，导致无法下载节点列表。
-* **解决办法**：
-  * **设置上游代理**：如果您有其他可用的代理服务，可在网页管理面板中打开“管理员 -> 代理及网络设置”，配置有效的 HTTP/SOCKS5 上游代理，后台会自动通过该代理拉取更新。
-  * **修改 DNS 解析器**：在终端修改 `/etc/resolv.conf`，将域名服务器替换为公共 DNS（如 `nameserver 8.8.8.8` 和 `nameserver 1.1.1.1`）。
+**3. 提示 `API Domain Blocked` 且候选节点为 0**
+DNS 污染或域名被拦截。可在「管理员 → 代理设置」配置上游代理拉取，或改 `/etc/resolv.conf` 为公共 DNS（`nameserver 8.8.8.8`）。
 
-#### 4. VPN 已成功连接，但客户端设置代理后无法上网 (无流量)
-* **原因**：部分系统启用了严格的反向路径过滤（`rp_filter`），导致策略路由的入站/出站数据包被系统误判丢弃。
-* **解决办法**：在终端输入 `ml` 命令打开交互菜单，工具会自动检测并提示您将 `rp_filter` 修复为宽松模式（值为 `2`）。
+**4. VPN 已连但客户端走代理无流量**
+部分系统严格反向路径过滤（`rp_filter`）误丢回包。在终端运行 `ml` 打开菜单，按提示把 `rp_filter` 修为宽松模式（值 `2`）。
 
 ---
 
 <a name="english"></a>
 ## English
 
-AimiliVPN is a high-performance, zero-dependency VPN proxy gateway built entirely using Python's standard library. It parses official VPNGate servers, benchmarks latency, and routes traffic through a built-in dual-protocol (HTTP/SOCKS5) proxy server.
+**AimiliVPN · Multi-Exit Edition** is a high-performance, **zero-dependency (pure Python stdlib)** VPN proxy gateway based on the official VPNGate protocol. On top of the upstream capabilities (concurrent benchmarking, multiple routing modes, a polished web UI, live logs, self-healing), this fork adds:
 
-> 🔱 **Fork notice**: This repository is a secondary-development (fork) of the upstream project [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate). It keeps all original capabilities and adds new features such as **Multi-Exit residential IPs** (see below). All credit for the original work goes to the upstream author.
+- 🌟 **Multi-Exit residential IPs**: run **N isolated tunnels on one server**, each on a different residential node bound to its own local proxy port — built to pair with **3x-ui / Xray** so each inbound egresses through a distinct residential IP, with one-click Xray outbound export.
+- ⚡ **Layered benchmarking**: fast concurrent TCP pre-screen drops dead nodes before the expensive full OpenVPN verification.
+- 🧠 **Proxy path improvements**: in-tunnel DNS caching + multi-resolver racing; the relay was rewritten as a non-blocking bidirectional pump (fixes half-duplex blocking, supports half-close).
+- 🛡️ **Multi-exit reliability**: non-blocking supervisor mutex prevents re-entrancy; orphaned slot tunnels are reclaimed on restart.
 
----
+> 🔱 **Fork notice**: This repository is a secondary-development (fork) of the upstream project [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate), keeping all of its original capabilities. All credit for the original work goes to the upstream author; this repo maintains the fork's added features only.
 
 ### 🚀 One-Click Installation
 
-Run the corresponding command on your Linux VPS as root:
+Run as root on your Linux VPS:
 
-#### 🌟 Stable Release (main branch)
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/Guli-Joy/aimili-vpngate/main/install.sh)
 ```
 
-> 💡 **Quick Note**: Once installed, copy the printed URL from the terminal to access the Web UI. Type the `ml` command in the terminal to summon the interactive CLI management console.
+It auto-detects the package manager (apt/apk/dnf/yum), installs deps, registers a service (systemd/OpenRC), generates random admin credentials and a secret-suffixed UI URL, and installs the `ml` CLI. Copy the printed URL (e.g. `http://your_ip:8787/u71e9IXp4TPx`) to access the panel.
 
----
+### 💡 Quick Start
+1. Open the printed UI URL and log in.
+2. Click **Update Nodes** to benchmark; pick a routing mode (Smart Auto / Fixed Region / Fixed IP).
+3. Use the local proxy at `127.0.0.1:7928` (HTTP/SOCKS5, localhost-only by default).
 
-### 💡 Quick Start Guide
+### 🌐 Multi-Exit Residential IPs
+Each exit slot = an independent `tunN` tunnel + dedicated policy routing table + dedicated local SOCKS5/HTTP port (from `17928`). Slots are isolated and auto-drift to healthy residential nodes when one dies.
 
-#### Step 1: Access the Web UI
-Open your browser and navigate to the printed URL (e.g. `http://your_vps_ip:8787/u71e9IXp4TPx`).
+- **Usage**: Web UI → **Admin → Multi-Exit Residential IP** → set slot count (e.g. `5`), optional country filter (`JP,KR`), residential-only toggle → Apply. Click "Export 3x-ui config" and merge the `outbounds` into your Xray config (change `inboundTag` to your real inbound tags).
+- **Env vars**: `MAX_EXIT_SLOTS` (16), `SLOT_PORT_BASE` (17928), `SLOT_DEV_BASE` (120), `SLOT_TABLE_BASE` (200), `EXIT_SLOTS_CHECK_INTERVAL` (30s).
 
-#### Step 2: Select Node and Mode
-1. Wait for the program to complete its first automatic node speed benchmarks.
-2. Under "Admin", you can trigger node fetching. The backend concurrently tests official VPNGate nodes and ranks them by latency.
-3. Switch routes mode (Smart Auto, Specific Region, or Specific Server Node) according to your needs.
+> ⚠️ VPNGate's pool of healthy residential nodes is limited (mostly JP/KR), so how many slots you can actually fill depends on the current pool. For large-scale, stable, pinnable residential IPs, layer in a paid residential proxy.
 
-#### Step 3: Use Localhost Proxy (Core Step)
-To prevent unauthorized scanning and abuse of the proxy port on the public internet, the built-in HTTP/SOCKS5 proxy server (default port **`7928`**) **binds to localhost (`127.0.0.1`) by default**. It is designed to route traffic generated locally on the VPS, rather than acting as a public proxy server.
-
-* **🐍 Proxy in Python**:
-  ```python
-  import requests
-  proxies = {
-      "http": "http://127.0.0.1:7928",
-      "https": "http://127.0.0.1:7928",
-  }
-  response = requests.get("https://www.google.com", proxies=proxies)
-  ```
-* **🐚 Proxy in Shell terminal**:
-  ```bash
-  export http_proxy="http://127.0.0.1:7928"
-  export https_proxy="http://127.0.0.1:7928"
-  ```
-* **⚙️ Other local services**:
-  Configure your scrapers, frameworks, or utility tools on this VPS to send traffic via `127.0.0.1:7928`.
-
-> 💡 **Quick Note**: If you really need to open this proxy port to the public internet, you can set the environment variable `export LOCAL_PROXY_HOST="::"` before running the manager.
-
----
-
-### ⚠️ Common Troubleshooting (FAQ)
-
-#### 1. Error: `Cannot allocate tun` or `Cannot open tun/tap dev`
-* **Reason**: Virtual network adapter (TUN/TAP device) is disabled. This is common in OpenVZ/LXC VPS instances.
-* **Solution**: Enable **TUN/TAP** in your VPS SolusVM/KiwiVM control panel, or submit a support ticket to your hosting provider.
-
-#### 2. Cannot open the Web UI in the browser
-* **Reason 1**: The built-in firewall (UFW or firewalld) is blocking ports `8787` (Web UI) and `7928` (Proxy).
-* **Solution 1**: Allow the ports in your OS firewall:
-  * **UFW**: `ufw allow 8787/tcp && ufw allow 7928/tcp`
-  * **Firewalld**: `firewall-cmd --add-port=8787/tcp --permanent && firewall-cmd --add-port=7928/tcp --permanent && firewall-cmd --reload`
-* **Reason 2**: Service provider security group blocking ports.
-* **Solution 2**: **Crucial!** Log in to your cloud provider console (AWS, Aliyun, Oracle Cloud, etc.), locate the **Security Group** for your instance, and add an inbound TCP rule to allow ports `8787` and `7928` from `0.0.0.0/0`.
-
-#### 3. "API Domain Blocked" / Candidate nodes pool is empty (0 nodes)
-* **Reason**: The official VPNGate domain is blocked or DNS resolution failed on your VPS.
-* **Solution**: Add an HTTP/SOCKS5 upstream proxy in the settings panel (Admin -> Proxy Settings), or configure public DNS in `/etc/resolv.conf` (e.g., `nameserver 8.8.8.8`).
-
----
-
-### 🌐 Multi-Exit Residential IPs (added in this fork)
-
-This fork adds a **Multi-Exit** capability: run **N isolated VPN tunnels on a single server**, each connected to a different residential node and bound to its own local proxy port — designed to pair with **3x-ui / Xray** so each inbound egresses through a distinct residential IP.
-
-* **How it works**: each exit slot = an independent `tunN` tunnel + a dedicated policy routing table + a dedicated local SOCKS5/HTTP proxy port (starting at `17928`). Slots are isolated and a slot whose node dies **auto-drifts** to another healthy residential node.
-* **Usage**: Web UI -> **Admin -> Multi-Exit Residential IP** -> set the slot count (e.g. `5`), optional country filter (e.g. `JP,KR`), residential-only toggle -> Apply. Then click "Export 3x-ui config" and merge the generated `outbounds` into your Xray config (change `inboundTag` to your real inbound tags).
-* **Env vars**: `MAX_EXIT_SLOTS` (default 16), `SLOT_PORT_BASE` (default 17928), `SLOT_DEV_BASE` (default 120), `SLOT_TABLE_BASE` (default 200), `EXIT_SLOTS_CHECK_INTERVAL` (default 30s).
-
-> ⚠️ VPNGate's pool of healthy residential nodes is limited (mostly JP/KR), so the number of slots you can actually fill depends on the current pool. For large-scale, stable, pinnable residential IPs, layer in a paid residential proxy.
+### ⚠️ Troubleshooting
+- **`Cannot allocate tun`**: enable TUN/TAP in your VPS panel (common on OpenVZ/LXC).
+- **UI unreachable**: allow TCP `8787` in OS firewall + cloud security group. Multi-exit ports (`17928+`) are localhost-only and need no public exposure.
+- **`API Domain Blocked` / 0 nodes**: DNS poisoning — set an upstream proxy in Admin → Proxy Settings, or use public DNS in `/etc/resolv.conf`.
+- **Connected but no traffic**: strict `rp_filter` dropping return packets — run `ml` and apply the loose-mode (`2`) fix.
