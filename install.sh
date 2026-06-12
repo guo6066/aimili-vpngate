@@ -99,6 +99,14 @@ else
     if [ -d "${INSTALL_DIR}" ]; then
         echo -e "  -> 目录 ${INSTALL_DIR} 已存在，正在更新并强制覆盖本地源码..."
         cd "${INSTALL_DIR}"
+        # 确保 origin 指向本次安装目标仓库（支持从上游/旧仓库平滑切换到本二开仓库）
+        CURRENT_ORIGIN=$(git remote get-url origin 2>/dev/null || echo "")
+        if [ -n "${CURRENT_ORIGIN}" ] && [ "${CURRENT_ORIGIN}" != "${GITHUB_URL}" ]; then
+            echo -e "  -> 检测到 origin 为 ${CURRENT_ORIGIN}，正在切换为 ${GITHUB_URL} ..."
+            git remote set-url origin "${GITHUB_URL}" || git remote add origin "${GITHUB_URL}" || true
+        elif [ -z "${CURRENT_ORIGIN}" ]; then
+            git remote add origin "${GITHUB_URL}" || true
+        fi
         git fetch --all || true
         git checkout "${DEPLOY_BRANCH}" || git checkout -b "${DEPLOY_BRANCH}" "origin/${DEPLOY_BRANCH}" || true
         echo -e "  -> 正在强制重置本地源码至 origin/${DEPLOY_BRANCH} ..."

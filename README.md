@@ -35,6 +35,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/Guli-Joy/aimili-vpngate/main/i
 
 如需指定自定义仓库（例如你自己的二开分叉）：`bash install.sh <github_user> <repo_name>`。
 
+#### 🔄 已部署过？这样更新
+**直接重跑上面的一键命令即可**——脚本会对已存在的 `/opt/aimilivpn` 执行 `git fetch` + 强制重置到最新源码并重启服务，**保留你的账号密码与全部配置**（`vpngate_data/` 不会被动）。
+
+- 即使你之前部署的是上游版本，重跑本命令也会**自动把 git 源切换到本二开仓库**，平滑升级。
+- 也可在终端输入 `ml` → 选择「更新」。但若之前装的是上游仓库，`ml` 仍从旧源拉取，拉不到本 fork，此时请用上面的一键命令更新。
+- 验证：更新后网页右上「GITHUB」指向本仓库、且出现「多出口住宅 IP」面板即为新版。
+
 ---
 
 ### ⭐ 核心特性
