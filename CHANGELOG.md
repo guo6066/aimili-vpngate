@@ -16,7 +16,8 @@
   - **一键导出 3x-ui / Xray 出站配置**（`outbounds` + `routing.rules` 模板）。
   - 新增 API：`GET /api/exit_slots`、`POST /api/update_exit_slots`、`GET /api/exit_slots/3xui`。
   - 槽位状态持久化到 `slots.json`。
-- 新增可调环境变量：`MAX_EXIT_SLOTS`、`MULTI_EXIT_SLOTS`、`SLOT_PORT_BASE`、`SLOT_DEV_BASE`、`SLOT_TABLE_BASE`、`EXIT_SLOTS_CHECK_INTERVAL`、`OPENVPN_TEST_CONCURRENCY`、`TCP_PRESCREEN_CONCURRENCY`、`OPENVPN_TUN_DNS`、`LOCAL_PROXY_DNS_TTL`、`LOCAL_PROXY_RELAY_TIMEOUT` 等。
+- **真机自检脚本** `scripts/selfcheck_multiexit.sh`：逐个出口槽位核对 tun 设备、策略路由表/规则、本地代理端口监听，并经各槽位代理实测真实出口 IP，输出 PASS/FAIL 汇总。
+- 新增可调环境变量：`MAX_EXIT_SLOTS`、`MULTI_EXIT_SLOTS`、`SLOT_PORT_BASE`、`SLOT_DEV_BASE`、`SLOT_TABLE_BASE`、`SLOT_PROXY_HOST`、`EXIT_SLOTS_CHECK_INTERVAL`、`OPENVPN_TEST_CONCURRENCY`、`TCP_PRESCREEN_CONCURRENCY`、`OPENVPN_TUN_DNS`、`LOCAL_PROXY_DNS_TTL`、`LOCAL_PROXY_RELAY_TIMEOUT` 等。
 - `.gitattributes`：统一 LF 行尾，避免 Windows 编辑给 bash/python 脚本引入 CRLF。
 
 ### 优化 (Changed)
@@ -26,9 +27,11 @@
 - `proxy_server` 出站设备参数化（`tun0` → `device`），代理网关支持 `stop_event` 优雅停止；策略路由 `setup/cleanup_policy_routing` 参数化（接口 + 路由表号）。以上改动默认值保持与原行为一致，**向后兼容**。
 
 ### 修复 (Fixed)
+- **安全**：多出口代理原先复用 `LOCAL_PROXY_HOST`，当主代理对公网开放（`::`）时会连带把所有住宅出口端口暴露公网且默认无鉴权。新增 `SLOT_PROXY_HOST`（默认 `127.0.0.1`）与主代理解耦，槽位代理默认仅绑回环。
 - 多出口供给器并发重入：`supervise_exit_slots_once` 加非阻塞互斥锁，避免周期线程与 API 触发线程同时对同一槽位重复拨号、累加 `ip rule`。
 - 进程重启遗留孤儿隧道：启动时 `kill_slot_openvpn_processes` 回收带 `AIMILI_SLOT` 标记的旧槽位 OpenVPN 进程并清理残留路由表，避免新供给器无法在 `tunN` 上重新拨号。
 - 主连接清理不再误杀多出口隧道：`kill_existing_openvpn_processes` 跳过带 `AIMILI_SLOT` 标记的进程；槽位拨号 `report_status=False`，不污染主连接的 UI 状态显示。
+- `ml` 命令行：`check_openvpn_process` 跳过 `AIMILI_SLOT` 隧道使「连接核心」只反映主连接，并新增「多出口住宅IP」状态行。
 
 ### 文档 (Docs)
 - README 重写为本二开项目的独立文档（中英双语），突出多出口与 3x-ui 集成，含核心特性表、环境变量表、架构示意图与 3x-ui 配置示例。
