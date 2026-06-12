@@ -155,6 +155,7 @@ export https_proxy="http://127.0.0.1:7928"
 | `MAX_EXIT_SLOTS` | `16` | 多出口槽位上限 |
 | `MULTI_EXIT_SLOTS` | `0` | 启动默认槽位数（0=关闭，亦可在后台调整） |
 | `SLOT_PORT_BASE` | `17928` | 多出口代理端口基准 |
+| `SLOT_PROXY_HOST` | `127.0.0.1` | 多出口代理绑定地址（默认仅回环，与主代理解耦，**不建议**公网暴露） |
 | `SLOT_DEV_BASE` | `120` | 多出口 tun 设备基准号 |
 | `SLOT_TABLE_BASE` | `200` | 多出口策略路由表基准 |
 | `EXIT_SLOTS_CHECK_INTERVAL` | `30` | 多出口体检/补齐间隔（秒） |

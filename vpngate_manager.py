@@ -122,6 +122,9 @@ DEFAULT_EXIT_SLOTS = env_int("MULTI_EXIT_SLOTS", 0, 0, 64)
 SLOT_DEV_BASE = env_int("SLOT_DEV_BASE", 120, 100, 900)
 SLOT_TABLE_BASE = env_int("SLOT_TABLE_BASE", 200, 101, 60000)
 SLOT_PORT_BASE = env_int("SLOT_PORT_BASE", 17928, 1024, 60000)
+# 多出口槽位代理默认仅绑回环：3x-ui 与本项目同机，槽位端口无需也不应暴露公网，
+# 与主代理的 LOCAL_PROXY_HOST 解耦，避免主代理对公网开放时连带暴露所有住宅出口。
+SLOT_PROXY_HOST = os.environ.get("SLOT_PROXY_HOST", "127.0.0.1")
 SLOT_PROCESS_MARKER = "AIMILI_SLOT"
 EXIT_SLOTS_CHECK_INTERVAL = env_int("EXIT_SLOTS_CHECK_INTERVAL", 30, 5)
 OPENVPN_CMD = os.environ.get("OPENVPN_CMD", "openvpn")
@@ -1936,7 +1939,7 @@ def ensure_slot_proxy(i: int) -> None:
         exit_slot_proxy_stops[i] = stop_ev
     threading.Thread(
         target=proxy_server.start_proxy_server,
-        args=(LOCAL_PROXY_HOST, slot_port(i), slot_device(i), stop_ev),
+        args=(SLOT_PROXY_HOST, slot_port(i), slot_device(i), stop_ev),
         daemon=True,
     ).start()
 
