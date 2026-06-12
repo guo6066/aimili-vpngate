@@ -19,7 +19,7 @@ Bilingual: [中文](#中文) | [English](#english)
 - 🧠 **代理链路优化**：隧道内 DNS 解析加入缓存与多上游 DNS 竞速；本地代理转发改为非阻塞双向泵，修复了原半双工阻塞风险并支持半关闭传播。
 - 🛡️ **多出口可靠性**：供给器非阻塞互斥避免并发重入，进程重启时自动回收遗留隧道孤儿进程。
 
-> 🔱 **二次开发声明**：本仓库基于上游原项目 [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate) 二次开发（Fork），保留其全部原有能力。原项目版权归原作者所有，在此向上游致谢。本仓库仅维护本二开版本的新增特性与适配。
+> 🔱 **二次开发声明**：本仓库基于上游原项目 [baoweise-bot/aimili-vpngate](https://github.com/baoweise-bot/aimili-vpngate) 二次开发（Fork），保留其全部原有能力。原项目版权归原作者所有，在此向上游致谢。本仓库仅维护本二开版本的新增特性与适配。完整改动见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
@@ -51,6 +51,33 @@ bash <(curl -Ls https://raw.githubusercontent.com/Guli-Joy/aimili-vpngate/main/i
 | 诊断引擎 | API/OpenVPN/本地路由防火墙分级错误码与中文原因定位 |
 | 管理后台 | 暗黑玻璃拟物风网页 + 随机安全后缀 + 会话鉴权 |
 | 命令行 | `ml` 交互式菜单（状态自检、服务管理、更新等） |
+
+---
+
+### 🏗️ 架构示意
+
+```mermaid
+flowchart LR
+    API["VPNGate 官方 API"] -->|拉取+解码| POOL["节点池<br/>分层测速筛选"]
+
+    subgraph VPS["单台 VPS（本项目）"]
+        POOL --> MAIN["主连接 tun0<br/>(智能/固定路由)"]
+        MAIN --> P0["本地代理 :7928<br/>HTTP/SOCKS5"]
+
+        POOL --> SUP["多出口供给器<br/>(自动漂移)"]
+        SUP --> S0["槽位0 tun120 → :17928"]
+        SUP --> S1["槽位1 tun121 → :17929"]
+        SUP --> SN["槽位N tunNNN → :1792N"]
+    end
+
+    P0 --> APP["本机脚本 / 爬虫 / 工具"]
+    S0 --> XUI["3x-ui / Xray<br/>多 outbound 分流"]
+    S1 --> XUI
+    SN --> XUI
+    XUI --> USERS["每入站 = 一个独立住宅 IP"]
+```
+
+每个出口槽位通过把出站 socket 绑定到各自的 `tunN`（`SO_BINDTODEVICE`）+ 独立策略路由表实现彼此隔离，互不串流。
 
 ---
 
