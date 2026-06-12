@@ -391,6 +391,7 @@ def get_state() -> dict[str, Any]:
     state["routing_mode"] = ui_cfg.get("routing_mode", "auto")
     state["force_country"] = ui_cfg.get("force_country", "")
     state["routing_ip_type"] = ui_cfg.get("routing_ip_type", "all")
+    state["routing_isp"] = ui_cfg.get("routing_isp", "")
     state["connection_enabled"] = ui_cfg.get("connection_enabled", True)
     state["fixed_node_id"] = ui_cfg.get("fixed_node_id", "")
     state["favorite_node_ids"] = ui_cfg.get("favorite_node_ids", [])
@@ -1480,7 +1481,17 @@ def auto_switch_node(attempt: int = 0) -> None:
             candidates = [n for n in candidates if n.get("ip_type") in ("residential", "mobile")]
         elif routing_ip_type == "hosting":
             candidates = [n for n in candidates if n.get("ip_type") == "hosting"]
-            
+
+        # Apply ISP/运营商过滤：只切换到匹配运营商关键字的节点（逗号分隔，匹配 owner/as_name 子串）
+        routing_isp = str(ui_cfg.get("routing_isp", "") or "").strip()
+        if routing_isp:
+            kws = [k.strip().lower() for k in routing_isp.split(",") if k.strip()]
+            if kws:
+                candidates = [
+                    n for n in candidates
+                    if any(kw in (str(n.get("owner", "")) + " " + str(n.get("as_name", "")) + " " + str(n.get("asn", ""))).lower() for kw in kws)
+                ]
+
         candidates.sort(key=lambda n: (parse_int(n.get("latency_ms")) or 999999, -parse_int(n.get("score"))))
         
     if candidates:
@@ -3901,6 +3912,12 @@ INDEX_HTML = r"""<!doctype html>
               </div>
             </div>
           </div>
+
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label class="form-label" for="net_routing_isp">运营商(ISP)过滤（留空=不限）</label>
+            <input type="text" id="net_routing_isp" class="input-field" placeholder="如 NTT,So-net,KDDI,SoftBank（逗号分隔，匹配运营主体）">
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">仅自动切换到运营主体/ASN 含上述关键字的节点。配合「固定地区」即可实现「只切某地区某运营商」的纯净住宅出口。</div>
+          </div>
           
           <div id="net_routing_warning" style="font-size: 12px; color: var(--text-secondary); line-height: 1.4; padding: 8px 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; margin-top: 8px;">
             ℹ️ <strong>自动配置</strong>：全自动测试并选择最佳IP。在使用过程中，如果当前连接节点没有失效，将不再更换IP；如果当前节点失效，系统将立刻秒级自动漂移到其他最快的可用节点。
@@ -5067,6 +5084,7 @@ function openNetworkModal() {
     
     selectOptionCard('routing_mode', mode);
     selectOptionCard('routing_ip_type', ipType);
+    if ($("net_routing_isp")) $("net_routing_isp").value = state.routing_isp || "";
   }
   
   populateRoutingCountries();
@@ -5091,6 +5109,7 @@ async function saveNetwork(e) {
   const routingMode = $("net_routing_mode").value;
   const forceCountry = $("net_force_country").value;
   const routingIpType = $("net_routing_ip_type").value;
+  const routingIsp = ($("net_routing_isp") ? $("net_routing_isp").value : "").trim();
   
   if (isNaN(proxyPort) || proxyPort < 1024 || proxyPort > 65535) {
     errorDivEl.textContent = "代理出站端口范围必须在 1024 至 65535 之间";
@@ -5121,7 +5140,8 @@ async function saveNetwork(e) {
         proxy_port: proxyPort,
         routing_mode: routingMode,
         force_country: forceCountry,
-        routing_ip_type: routingIpType
+        routing_ip_type: routingIpType,
+        routing_isp: routingIsp
       })
     });
     
@@ -6232,6 +6252,7 @@ class Handler(BaseHTTPRequestHandler):
                 routing_mode = str(payload.get("routing_mode") or "auto").strip()
                 force_country = str(payload.get("force_country") or "").strip()
                 routing_ip_type = str(payload.get("routing_ip_type") or "all").strip()
+                routing_isp = str(payload.get("routing_isp") or "").strip()
                 
                 try:
                     new_proxy_port_int = int(new_proxy_port)
@@ -6259,6 +6280,7 @@ class Handler(BaseHTTPRequestHandler):
                 ui_cfg["routing_mode"] = routing_mode
                 ui_cfg["force_country"] = force_country
                 ui_cfg["routing_ip_type"] = routing_ip_type
+                ui_cfg["routing_isp"] = routing_isp
                 
                 auth_file = DATA_DIR / "ui_auth.json"
                 with lock:
@@ -6287,6 +6309,7 @@ class Handler(BaseHTTPRequestHandler):
                 routing_mode = str(payload.get("routing_mode") or "auto").strip()
                 force_country = str(payload.get("force_country") or "").strip()
                 routing_ip_type = str(payload.get("routing_ip_type") or "all").strip()
+                routing_isp = str(payload.get("routing_isp") or "").strip()
                 fav_fail_fallback = bool(payload.get("fav_fail_fallback", True))
                 
                 if routing_mode not in ("auto", "fixed_ip", "fixed_region", "favorites"):
@@ -6300,6 +6323,7 @@ class Handler(BaseHTTPRequestHandler):
                 ui_cfg["routing_mode"] = routing_mode
                 ui_cfg["force_country"] = force_country
                 ui_cfg["routing_ip_type"] = routing_ip_type
+                ui_cfg["routing_isp"] = routing_isp
                 ui_cfg["fav_fail_fallback"] = fav_fail_fallback
                 ui_cfg.pop("enable_force_country", None)
                 

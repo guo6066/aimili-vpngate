@@ -52,7 +52,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/Guli-Joy/aimili-vpngate/main/i
 | 节点来源 | 实时拉取官方 VPNGate iPhone API，自动解码 OpenVPN 配置 |
 | 智能测速 | **分层测速**：TCP 粗筛 + OpenVPN 精验，并发可配置 |
 | 路由模式 | 智能自动漂移 / 固定 IP / 固定国家地区 / 收藏夹优先 |
-| 出站类型过滤 | 可只选住宅/移动 IP，或机房 IP |
+| 出站类型 / ISP 过滤 | 可只选住宅/移动 IP 或机房 IP；并可按**运营商(ISP)关键字**过滤，自动漂移只切匹配的地区+运营商 |
 | 本地代理网关 | 自适应 HTTP + SOCKS5（默认端口 `7928`，默认仅绑 `127.0.0.1`） |
 | **多出口住宅 IP** | **N 条隔离隧道 + N 个独立代理端口 + 自动漂移 + 3x-ui 一键导出** |
 | 诊断引擎 | API/OpenVPN/本地路由防火墙分级错误码与中文原因定位 |
