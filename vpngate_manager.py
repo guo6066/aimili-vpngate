@@ -1909,6 +1909,37 @@ def set_exit_slot_config(count: Any = None, country: Any = None, residential_onl
             print(f"[多出口] 保存槽位配置失败: {e}", flush=True)
     return get_exit_slot_config()
 
+def get_slot_country_map() -> dict[str, str]:
+    cfg = load_ui_config()
+    raw = cfg.get("exit_slot_country_map") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v or "").strip().upper() for k, v in raw.items()}
+
+def per_slot_country(i: int) -> str:
+    """返回某槽位的地区过滤：优先用该槽位单独设定，否则回退到全局设置。"""
+    return get_slot_country_map().get(str(i), "") or get_exit_slot_config()["country"]
+
+def set_slot_country(i: int, country: Any) -> dict[str, str]:
+    with lock:
+        auth_file = DATA_DIR / "ui_auth.json"
+        cfg = load_ui_config()
+        cmap = cfg.get("exit_slot_country_map")
+        if not isinstance(cmap, dict):
+            cmap = {}
+        val = str(country or "").strip().upper()
+        if val:
+            cmap[str(i)] = val
+        else:
+            cmap.pop(str(i), None)  # 留空 = 跟随全局
+        cfg["exit_slot_country_map"] = cmap
+        try:
+            DATA_DIR.mkdir(exist_ok=True, parents=True)
+            auth_file.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            print(f"[多出口] 保存槽位地区失败: {e}", flush=True)
+    return get_slot_country_map()
+
 def current_slot_node_ids() -> set[str]:
     with exit_slots_lock:
         return {s.get("node_id") for s in exit_slots.values() if s.get("node_id")}
@@ -2019,6 +2050,7 @@ def slot_process_alive(i: int) -> bool:
     return p is not None and p.poll() is None
 
 def write_slots_state() -> None:
+    country_map = get_slot_country_map()
     with exit_slots_lock:
         snapshot = []
         for i in sorted(exit_slots.keys()):
@@ -2033,6 +2065,7 @@ def write_slots_state() -> None:
                 "owner": s.get("owner", ""), "latency_ms": s.get("latency_ms", 0),
                 "status": "up" if alive else s.get("status", "down"),
                 "message": s.get("message", ""), "since": s.get("since", 0),
+                "country_filter": country_map.get(str(i), ""),
             })
     cfg = get_exit_slot_config()
     write_json(SLOTS_FILE, {
@@ -2081,14 +2114,38 @@ def supervise_exit_slots_once() -> None:
                 continue
             tear_down_slot(i, stop_proxy=False)  # 清理死进程/路由，保留已分配的代理端口
             used = current_slot_node_ids()
-            picks = select_slot_nodes(used, 1, cfg["country"], cfg["residential_only"])
+            picks = select_slot_nodes(used, 1, per_slot_country(i), cfg["residential_only"])
             if picks:
                 if not bring_up_slot(i, picks[0]):
                     mark_slot_pending(i, f"节点 {picks[0].get('id')} 连接失败，待重试")
             else:
-                mark_slot_pending(i, "暂无可用住宅节点，等待节点池补齐")
+                scope = per_slot_country(i) or "不限地区"
+                mark_slot_pending(i, f"暂无可用住宅节点（{scope}），等待节点池补齐")
 
         write_slots_state()
+    finally:
+        exit_slots_supervise_lock.release()
+
+def switch_slot_node(i: int) -> dict[str, Any]:
+    """手动为某槽位切换到另一个住宅节点（运营商/IP 质量不满意时重摇）。"""
+    cfg = get_exit_slot_config()
+    if i < 0 or i >= cfg["count"]:
+        return {"ok": False, "error": "槽位超出当前出口数量范围"}
+    if not exit_slots_supervise_lock.acquire(blocking=False):
+        return {"ok": False, "error": "供给器正忙，请稍后重试"}
+    try:
+        # 当前节点已在 exit_slots 中，current_slot_node_ids() 会把它纳入排除集，确保切到不同 IP
+        used = current_slot_node_ids()
+        picks = select_slot_nodes(used, 1, per_slot_country(i), cfg["residential_only"])
+        if not picks:
+            return {"ok": False, "error": "没有其他可用住宅节点可切换（可放宽地区过滤或稍后重试）"}
+        tear_down_slot(i, stop_proxy=False)
+        if bring_up_slot(i, picks[0]):
+            write_slots_state()
+            return {"ok": True, "ip": picks[0].get("ip"), "country": picks[0].get("country")}
+        mark_slot_pending(i, "手动切换后连接失败，待自动重试")
+        write_slots_state()
+        return {"ok": False, "error": f"切换到节点 {picks[0].get('id')} 失败，将自动重试"}
     finally:
         exit_slots_supervise_lock.release()
 
@@ -4922,8 +4979,12 @@ async function loadExitSlots(fillForm) {
 
 function renderExitSlots(data) {
   const wrap = $("exit_slots_list");
+  const active = document.activeElement;
+  if (active && active.id && active.id.indexOf('slot_cf_') === 0) return;
   const slots = (data && data.slots) || [];
   const desired = (data && data.config) ? data.config.count : 0;
+  const countryMap = (data && data.country_map) || {};
+  const globalCountry = (data && data.config) ? (data.config.country || '') : '';
   if (desired === 0 && slots.length === 0) {
     wrap.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 16px;">多出口未启用。把「出口数量」设为大于 0 并点击应用即可开启。</div>';
     return;
@@ -4932,6 +4993,7 @@ function renderExitSlots(data) {
     wrap.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 16px;">正在建立出口隧道，请稍候（首次拨号约需数秒）...</div>';
     return;
   }
+  const ph = globalCountry ? ('跟随全局 ' + globalCountry) : '不限地区';
   let html = '';
   slots.forEach(function(s) {
     const up = s.status === 'up';
@@ -4941,16 +5003,70 @@ function renderExitSlots(data) {
     const ip = s.ip || '—';
     const ipType = s.ip_type === 'residential' ? '住宅' : (s.ip_type === 'mobile' ? '移动' : (s.ip_type === 'hosting' ? '机房' : (s.ip_type || '—')));
     const msg = (!up && s.message) ? ('<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">' + s.message + '</div>') : '';
-    html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border-color);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);">'
-      + '<span style="width:9px;height:9px;border-radius:50%;background:' + dot + ';flex-shrink:0;box-shadow:0 0 8px ' + dot + ';"></span>'
-      + '<div style="flex:1;min-width:0;">'
-        + '<div style="font-size:13px;color:var(--text-primary);font-weight:600;">槽位 #' + s.slot + ' · 代理端口 <span style="color:var(--primary);">' + s.port + '</span> <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + statusText + ')</span></div>'
-        + '<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + loc + ' · ' + ip + ' · ' + ipType + '</div>'
-        + msg
+    const cf = (s.country_filter !== undefined ? s.country_filter : (countryMap[String(s.slot)] || ''));
+    html += '<div style="padding:10px 12px;border:1px solid var(--border-color);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,0.02);">'
+      + '<div style="display:flex;align-items:center;gap:12px;">'
+        + '<span style="width:9px;height:9px;border-radius:50%;background:' + dot + ';flex-shrink:0;box-shadow:0 0 8px ' + dot + ';"></span>'
+        + '<div style="flex:1;min-width:0;">'
+          + '<div style="font-size:13px;color:var(--text-primary);font-weight:600;">槽位 #' + s.slot + ' · 代理端口 <span style="color:var(--primary);">' + s.port + '</span> <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(' + statusText + ')</span></div>'
+          + '<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + loc + ' · ' + ip + ' · ' + ipType + '</div>'
+          + msg
+        + '</div>'
+        + '<button type="button" onclick="switchExitSlot(' + s.slot + ',this)" title="换一个住宅 IP" style="flex-shrink:0;height:30px;padding:0 12px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--text-primary);cursor:pointer;">换 IP</button>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">'
+        + '<span style="font-size:11px;color:var(--text-secondary);flex-shrink:0;">本槽地区</span>'
+        + '<input type="text" id="slot_cf_' + s.slot + '" value="' + cf + '" placeholder="' + ph + '" style="flex:1;min-width:0;height:28px;font-size:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-color);color:var(--text-primary);border-radius:6px;padding:0 8px;outline:none;">'
+        + '<button type="button" onclick="saveSlotCountry(' + s.slot + ',this)" style="flex-shrink:0;height:28px;padding:0 10px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--text-secondary);cursor:pointer;">设定</button>'
       + '</div>'
     + '</div>';
   });
   wrap.innerHTML = html;
+}
+
+async function switchExitSlot(slot, btn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '切换中...';
+  $("exit_slots_error").style.display = "none"; $("exit_slots_success").style.display = "none";
+  try {
+    const res = await fetch("./api/switch_exit_slot", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slot: slot })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      $("exit_slots_success").textContent = '槽位 #' + slot + ' 已切换至 ' + (data.country || '') + ' ' + (data.ip || '');
+      $("exit_slots_success").style.display = "block";
+    } else {
+      $("exit_slots_error").textContent = data.error || "切换失败";
+      $("exit_slots_error").style.display = "block";
+    }
+  } catch (e) {
+    $("exit_slots_error").textContent = "请求失败: " + e; $("exit_slots_error").style.display = "block";
+  } finally {
+    btn.disabled = false; btn.textContent = old; loadExitSlots(false);
+  }
+}
+
+async function saveSlotCountry(slot, btn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '...';
+  $("exit_slots_error").style.display = "none"; $("exit_slots_success").style.display = "none";
+  try {
+    const val = ($("slot_cf_" + slot) || {}).value || "";
+    const res = await fetch("./api/set_slot_country", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slot: slot, country: val })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      $("exit_slots_success").textContent = '槽位 #' + slot + ' 地区已设为 ' + (val || '跟随全局') + '，正在切换...';
+      $("exit_slots_success").style.display = "block";
+    } else {
+      $("exit_slots_error").textContent = data.error || "设定失败";
+      $("exit_slots_error").style.display = "block";
+    }
+  } catch (e) {
+    $("exit_slots_error").textContent = "请求失败: " + e; $("exit_slots_error").style.display = "block";
+  } finally {
+    btn.disabled = false; btn.textContent = old; loadExitSlots(false);
+  }
 }
 
 async function saveExitSlots(event) {
@@ -5647,6 +5763,7 @@ class Handler(BaseHTTPRequestHandler):
                 "max_slots": MAX_EXIT_SLOTS,
                 "proxy_host": "127.0.0.1",
                 "port_base": SLOT_PORT_BASE,
+                "country_map": get_slot_country_map(),
                 "slots": state.get("slots", []),
                 "updated_at": state.get("updated_at", 0),
             })
@@ -5913,6 +6030,35 @@ class Handler(BaseHTTPRequestHandler):
                 # 立即触发一次供给，避免等待下个周期
                 threading.Thread(target=supervise_exit_slots_once, daemon=True).start()
                 self.send_json({"ok": True, "config": new_cfg, "message": "多出口配置已更新，正在后台调整槽位..."})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        elif effective_path == "/api/set_slot_country":
+            try:
+                payload = self.read_json_body()
+                slot = payload.get("slot")
+                if slot is None or not str(slot).strip().lstrip("-").isdigit():
+                    self.send_json({"ok": False, "error": "缺少有效的槽位号"}, HTTPStatus.BAD_REQUEST)
+                    return
+                country_map = set_slot_country(int(slot), payload.get("country"))
+                # 该槽位地区变了，重摇一次让它落到新地区
+                threading.Thread(target=switch_slot_node, args=(int(slot),), daemon=True).start()
+                self.send_json({"ok": True, "country_map": country_map, "message": "该槽位地区已更新，正在切换节点..."})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        elif effective_path == "/api/switch_exit_slot":
+            try:
+                payload = self.read_json_body()
+                slot = payload.get("slot")
+                if slot is None or not str(slot).strip().lstrip("-").isdigit():
+                    self.send_json({"ok": False, "error": "缺少有效的槽位号"}, HTTPStatus.BAD_REQUEST)
+                    return
+                result = switch_slot_node(int(slot))
+                status = HTTPStatus.OK if result.get("ok") else HTTPStatus.CONFLICT
+                self.send_json(result, status)
             except Exception as exc:
                 self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return

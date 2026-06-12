@@ -13,6 +13,8 @@
 - **多出口住宅 IP（Multi-Exit）**：单机同时维持 N 条相互隔离的隧道，每条 = 独立 `tunN` + 独立策略路由表（`200+i`）+ 独立本地代理端口（`17928+i`），连接不同住宅节点。
   - 后台「管理员 → 多出口住宅 IP」面板：实时设置出口数量、国家过滤（如 `JP,KR`）、仅住宅 IP 开关，并展示每个槽位的状态 / IP / 国家 / 端口。
   - **per-slot 自动漂移**：某槽位节点掉线时自动从健康住宅节点池补齐。
+  - **逐槽位地区过滤**：可给每个槽位单独设定地区（如槽位0=KR、槽位1=JP），留空跟随全局；API `POST /api/set_slot_country`。
+  - **手动换 IP**：每个槽位可一键重摇到同地区的另一住宅节点，应对不同运营商 IP 质量差异；API `POST /api/switch_exit_slot`。
   - **一键导出 3x-ui / Xray 出站配置**（`outbounds` + `routing.rules` 模板）。
   - 新增 API：`GET /api/exit_slots`、`POST /api/update_exit_slots`、`GET /api/exit_slots/3xui`。
   - 槽位状态持久化到 `slots.json`。
