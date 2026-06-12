@@ -127,6 +127,10 @@ SLOT_PORT_BASE = env_int("SLOT_PORT_BASE", 17928, 1024, 60000)
 SLOT_PROXY_HOST = os.environ.get("SLOT_PROXY_HOST", "127.0.0.1")
 SLOT_PROCESS_MARKER = "AIMILI_SLOT"
 EXIT_SLOTS_CHECK_INTERVAL = env_int("EXIT_SLOTS_CHECK_INTERVAL", 30, 5)
+# 槽位出口连通性健康检测：真实经 socks 端口 curl 一次，验证节点是否真转发流量
+SLOT_EGRESS_CHECK_INTERVAL = env_int("SLOT_EGRESS_CHECK_INTERVAL", 45, 10)
+SLOT_EGRESS_FAIL_THRESHOLD = env_int("SLOT_EGRESS_FAIL_THRESHOLD", 2, 1)
+SLOT_BAD_NODE_COOLDOWN = env_int("SLOT_BAD_NODE_COOLDOWN", 600, 60)
 OPENVPN_CMD = os.environ.get("OPENVPN_CMD", "openvpn")
 OPENVPN_AUTH_USER = os.environ.get("OPENVPN_AUTH_USER", "vpn")
 OPENVPN_AUTH_PASS = os.environ.get("OPENVPN_AUTH_PASS", "vpn")
@@ -1834,7 +1838,10 @@ exit_slots_lock = threading.RLock()
 exit_slots_supervise_lock = threading.Lock()
 exit_slots: dict[int, dict[str, Any]] = {}
 exit_slot_proxy_stops: dict[int, threading.Event] = {}
+slot_bad_nodes: dict[str, float] = {}          # node_id -> 冷却到期时间(出口不通的坏节点，暂时排除)
+slot_egress_fail_counts: dict[int, int] = {}   # slot_index -> 连续出口失败次数
 last_exit_slots_heartbeat = 0.0
+last_slot_egress_heartbeat = 0.0
 
 def kill_slot_openvpn_processes() -> None:
     """清理上一轮遗留的槽位 OpenVPN 孤儿进程（带 AIMILI_SLOT 标记）。
@@ -2126,9 +2133,11 @@ def select_slot_nodes(used_ids: set[str], need: int, country: str, residential_o
         return []
     countries = [c.strip() for c in country.split(",") if c.strip()] if country else []
     isp_kws = [k.strip().lower() for k in isp.split(",") if k.strip()] if isp else []
+    now = time.time()
+    bad = {nid for nid, until in slot_bad_nodes.items() if until > now}
     pool: list[dict[str, Any]] = []
     for n in read_nodes():
-        if n.get("id") in used_ids:
+        if n.get("id") in used_ids or n.get("id") in bad:
             continue
         if n.get("probe_status") != "available":
             continue
@@ -2259,6 +2268,8 @@ def write_slots_state() -> None:
                 "message": s.get("message", ""), "since": s.get("since", 0),
                 "country_filter": country_map.get(str(i), ""),
                 "isp_filter": isp_map.get(str(i), ""),
+                "exit_ip": s.get("exit_ip", ""),
+                "egress_ok": s.get("egress_ok"),
             })
     cfg = get_exit_slot_config()
     write_json(SLOTS_FILE, {
@@ -2415,6 +2426,66 @@ def add_slot_with_node(node_id: str) -> dict[str, Any]:
     if result.get("ok"):
         result["message"] = f"已新增槽位 #{new_idx}（端口 {slot_port(new_idx)}）并锁定该节点"
     return result
+
+def check_slot_egress(port: int) -> tuple[bool, str]:
+    """经槽位本地 socks 端口实测出口连通性，返回(是否通, 出口IP)。验证节点真的转发流量。"""
+    for url in ("http://ip.sb", "http://api.ipify.org"):
+        try:
+            res = subprocess.run(
+                ["curl", "-s", "-x", f"socks5h://127.0.0.1:{port}", url, "--max-time", "6"],
+                capture_output=True, text=True, timeout=8,
+            )
+            ip = (res.stdout or "").strip()
+            if res.returncode == 0 and ip and len(ip) <= 64:
+                return True, ip
+        except Exception:
+            pass
+    return False, ""
+
+def slot_egress_checker_loop() -> None:
+    """周期对每个运行中的槽位做真实出口检测；节点'假活不转发'时标记并自动漂移到其他节点。"""
+    global last_slot_egress_heartbeat
+    time.sleep(20)
+    while True:
+        last_slot_egress_heartbeat = time.time()
+        try:
+            active = set(get_active_slots())
+            paused = get_paused_slots()
+            pin_map = get_slot_pin_map()
+            for i in sorted(active):
+                if i in paused or not slot_process_alive(i):
+                    continue
+                ok, ip = check_slot_egress(slot_port(i))
+                with exit_slots_lock:
+                    s = exit_slots.get(i)
+                    if s is not None:
+                        s["exit_ip"] = ip if ok else ""
+                        s["egress_ok"] = ok
+                    nid = s.get("node_id") if s else ""
+                if ok:
+                    slot_egress_fail_counts[i] = 0
+                    continue
+                slot_egress_fail_counts[i] = slot_egress_fail_counts.get(i, 0) + 1
+                if slot_egress_fail_counts[i] < SLOT_EGRESS_FAIL_THRESHOLD:
+                    continue
+                slot_egress_fail_counts[i] = 0
+                if nid:
+                    slot_bad_nodes[nid] = time.time() + SLOT_BAD_NODE_COOLDOWN
+                if pin_map.get(str(i)):
+                    # 用户锁定的节点：不自动换，仅提示出口不通
+                    print(f"[多出口] 槽位 {i} 锁定节点 {nid} 出口不通（已锁定不自动切换）", flush=True)
+                    with exit_slots_lock:
+                        if i in exit_slots:
+                            exit_slots[i]["message"] = "锁定节点出口不通（点换IP解除锁定或改用其他节点）"
+                    write_slots_state()
+                    continue
+                print(f"[多出口] 槽位 {i} 节点 {nid} 出口不通，标记并自动切换其他节点", flush=True)
+                log_to_json("WARNING", "MultiExit", f"槽位 {i} 节点 {nid} 出口不通，自动漂移")
+                tear_down_slot(i, stop_proxy=False)
+                threading.Thread(target=supervise_exit_slots_once, daemon=True).start()
+        except Exception as e:
+            print(f"[多出口] 出口健康检测异常: {e}", flush=True)
+        time.sleep(SLOT_EGRESS_CHECK_INTERVAL)
 
 def exit_slots_loop() -> None:
     global last_exit_slots_heartbeat
@@ -6741,6 +6812,7 @@ def main() -> None:
     threading.Thread(target=background_proxy_checker, daemon=True).start()
     threading.Thread(target=active_node_pinger, daemon=True).start()
     threading.Thread(target=exit_slots_loop, daemon=True).start()
+    threading.Thread(target=slot_egress_checker_loop, daemon=True).start()
     
     ui_cfg = load_ui_config()
     ui_host = ui_cfg.get("host", UI_HOST)

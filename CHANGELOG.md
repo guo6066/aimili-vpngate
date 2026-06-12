@@ -34,6 +34,7 @@
 - `proxy_server` 出站设备参数化（`tun0` → `device`），代理网关支持 `stop_event` 优雅停止；策略路由 `setup/cleanup_policy_routing` 参数化（接口 + 路由表号）。以上改动默认值保持与原行为一致，**向后兼容**。
 
 ### 修复 (Fixed)
+- **多出口槽位出口健康检测 + 自动漂移（重要）**：此前槽位仅判断 OpenVPN 进程是否存活，不验证节点是否真转发流量——遇到"握手成功但不转发"的假活节点（VPNGate 免费/住宅节点常见）会一直占着槽位且出口不通。新增 `slot_egress_checker_loop`：周期经各槽位本地 socks 端口实测出口（curl），连续失败则把该节点加入冷却名单(`slot_bad_nodes`)并自动漂移到其他能转发的节点；锁定(pin)的槽位只提示不强切。`slots.json`/面板新增 `exit_ip`/`egress_ok`。可调 `SLOT_EGRESS_CHECK_INTERVAL`/`SLOT_EGRESS_FAIL_THRESHOLD`/`SLOT_BAD_NODE_COOLDOWN`。
 - **安全**：多出口代理原先复用 `LOCAL_PROXY_HOST`，当主代理对公网开放（`::`）时会连带把所有住宅出口端口暴露公网且默认无鉴权。新增 `SLOT_PROXY_HOST`（默认 `127.0.0.1`）与主代理解耦，槽位代理默认仅绑回环。
 - 多出口供给器并发重入：`supervise_exit_slots_once` 加非阻塞互斥锁，避免周期线程与 API 触发线程同时对同一槽位重复拨号、累加 `ip rule`。
 - 进程重启遗留孤儿隧道：启动时 `kill_slot_openvpn_processes` 回收带 `AIMILI_SLOT` 标记的旧槽位 OpenVPN 进程并清理残留路由表，避免新供给器无法在 `tunN` 上重新拨号。
