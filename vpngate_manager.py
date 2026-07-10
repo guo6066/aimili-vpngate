@@ -3758,7 +3758,7 @@ INDEX_HTML = r"""<!doctype html>
         <svg xmlns="http://www.w3.org/2000/svg" style="width:12px; height:12px; margin-left: 2px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
       </button>
       <div id="github_dropdown" class="dropdown-content">
-        <a href="https://github.com/Guli-Joy/aimili-vpngate" target="_blank">源码仓库</a>
+        <a href="https://github.com/Guli-Joy/aimili-vpngate" target="_blank">源码仓库【还是他】</a>
       </div>
     </div>
     <button id="refresh" class="btn-primary" style="background: var(--success-gradient);">
