@@ -116,7 +116,7 @@ TCP_PRESCREEN_CONCURRENCY = env_int("TCP_PRESCREEN_CONCURRENCY", 100, 1, 512)
 # ---- 多出口（住宅 IP 槽位）配置 ----
 # 每个槽位 = 一条独立 OpenVPN 隧道(tun{DEV_BASE+i}) + 独立策略路由表({TABLE_BASE+i}) + 独立本地代理端口({PORT_BASE+i})
 # 默认槽位数为 0 表示沿用传统单出口模式；可在 Web UI 运行时调整槽位数。
-MAX_EXIT_SLOTS = env_int("MAX_EXIT_SLOTS", 60, 1, 64)
+MAX_EXIT_SLOTS = env_int("MAX_EXIT_SLOTS", 16, 1, 64)
 DEFAULT_EXIT_SLOTS = env_int("MULTI_EXIT_SLOTS", 0, 0, 64)
 # tun 设备基准号：测速使用 tun2..tun99，主连接用 tun0，槽位从 tun120 起，彻底避开冲突
 SLOT_DEV_BASE = env_int("SLOT_DEV_BASE", 120, 100, 900)
@@ -5435,7 +5435,7 @@ async function loadExitSlots(fillForm) {
     const data = await res.json();
     if (fillForm && data.config) {
       $("slot_count").value = data.config.count;
-      $("slot_count").max = data.max_slots || 16;
+      $("slot_count").max = data.max_slots || 60;
       $("slot_country").value = data.config.country || "";
       if ($("slot_isp")) $("slot_isp").value = data.config.isp || "";
       $("slot_residential").checked = data.config.residential_only !== false;
