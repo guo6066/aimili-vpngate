@@ -48,7 +48,7 @@ echo -e "${BLUE}==========================================================${PLAI
 
 # 3. Configure GitHub Repository URL
 # 二开仓库默认指向 Guli-Joy/aimili-vpngate（上游原项目: baoweise-bot/aimili-vpngate）
-DEFAULT_USER="guo6066"
+DEFAULT_USER="Guli-Joy"
 DEFAULT_REPO="aimili-vpngate"
 
 # Allow custom repository override via command line arguments
