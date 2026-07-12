@@ -121,7 +121,7 @@ DEFAULT_EXIT_SLOTS = env_int("MULTI_EXIT_SLOTS", 0, 0, 64)
 # tun 设备基准号：测速使用 tun2..tun99，主连接用 tun0，槽位从 tun130 起，彻底避开冲突
 SLOT_DEV_BASE = env_int("SLOT_DEV_BASE", 130, 100, 900)
 SLOT_TABLE_BASE = env_int("SLOT_TABLE_BASE", 200, 101, 60000)
-SLOT_PORT_BASE = env_int("SLOT_PORT_BASE", 17928, 1024, 60000)
+SLOT_PORT_BASE = env_int("SLOT_PORT_BASE", 17130, 1024, 60000)
 # 多出口槽位代理默认仅绑回环：3x-ui 与本项目同机，槽位端口无需也不应暴露公网，
 # 与主代理的 LOCAL_PROXY_HOST 解耦，避免主代理对公网开放时连带暴露所有住宅出口。
 SLOT_PROXY_HOST = os.environ.get("SLOT_PROXY_HOST", "127.0.0.1")
